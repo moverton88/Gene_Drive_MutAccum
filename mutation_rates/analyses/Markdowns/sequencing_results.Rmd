@@ -1,0 +1,350 @@
+---
+title: "Sequencing_Results"
+author: Michael Overton
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = F)
+```
+
+This Markdown document uses the objects generated in 02_mainDataFrames.R
+
+# Sequencing results
+## Depth statistics
+
+
+```{r}
+coverage_AOV <- aov(n_valid ~ Tx_ID, data = seq_depths_mean %>% 
+  filter(f_valid > 0.7))
+AOV_P <- summary(coverage_AOV)[[1]][[1,"Pr(>F)"]] %>% round(digits = 3)
+seq_depths_mean %>% 
+  filter(f_valid > 0.7) %>% 
+  ggplot() + 
+  geom_histogram(aes(x = f_valid), binwidth = 0.01) + 
+  annotate(geom = "text", x = 0.75, y = 10, label = paste("AOV p = ", AOV_P)) +
+  facet_grid(Tx_ID~.)
+```
+
+Median depth for all clones
+```{r}
+depths_AOV <- aov(MEDIAN_COVERAGE ~ Tx_ID, data = seq_depths_mean %>% 
+  filter(f_valid > 0.7))
+AOV_P <- summary(depths_AOV)[[1]][[1,"Pr(>F)"]] %>% round(digits = 3)
+seq_depths_mean %>% 
+  filter(f_valid > 0.7) %>% 
+  ggplot() + 
+  geom_histogram(aes(x = MEDIAN_COVERAGE), binwidth = 1) + 
+  annotate(geom = "text", x = 60, y = 7, label = paste("AOV p = ", AOV_P)) +
+  facet_grid(Tx_ID~.)
+
+```
+
+```{r}
+SNPs_merge %>% 
+  filter(!is.na(GQ_BYcall)) %>%
+  ggplot() + geom_histogram(aes(x = GQ_BYcall)) + 
+  scale_y_log10() +
+  facet_grid(Tx_ID~.)
+
+SNPs_merge %>% 
+  filter(!is.na(GQ_RMcall)) %>%
+  ggplot() + geom_histogram(aes(x = GQ_RMcall)) + 
+  scale_y_log10() +
+  facet_grid(Tx_ID~.)
+
+SNPs_merge %>% 
+  filter(Rep != "00", !is.na(GT_BYcall), !is.na(GT_RMcall)) %>%
+  count(Tx_ID, ID) %>% group_by(Tx_ID) %>% 
+  summarize(m = mean(n))
+
+```
+
+
+## Number of SNP sites sampled
+
+Overall number of sites sampled for all clones from SNPs_merge dataframe. 
+This is prior to final genotyping and filtering
+
+```{r}
+n_sites_ID %>% group_by(Tx_ID) %>% summarize(m = mean(n_mean))
+sites_AOV <- aov(n_mean ~ Tx_ID, data = n_sites_ID)
+AOV_P <- summary(sites_AOV)[[1]][[1,"Pr(>F)"]] %>% round(digits = 3)
+n_sites_ID %>% ggplot() + 
+  geom_histogram(aes(x = n_mean), binwidth = 1000) + 
+  # annotate(geom = "text", x = min(n_sites_ID$n_mean) + 1000, 
+  #          y = 10, label = paste("AOV p = ", AOV_P)) +
+  facet_grid(Tx_ID~.)
+```
+
+Measure mean allele bias at heterozygous sites and check for whole-genome aneuploidy among clones
+*One clone in an aneuploid lineage (F_B08) appears to have reverted, 
+but since the founder was removed, so too was this clone*
+```{r}
+whGnm_aneu_line
+ID_allele_bias %>% 
+  mutate(aneu = Line %in% whGnm_aneu_line | ID %in% whGnm_aneu_ID) %>%
+  ggplot() + geom_histogram(aes(x = bias_Ref, fill = aneu), binwidth = 0.01) + 
+  xlim(0, 1) +
+  scale_fill_manual(values = c("black", "red4"))
+
+```
+
+
+Some fraction of heterozygous calls exhibit high allelic imbalance and may have been called incorrectly.
+To correct for this, we developed a method that extracts high-confidence heterozygous calls,
+bins bins them by total depth, calculates the central 95% confidence 
+interval of the fraction of reads supporting the BY allele, and marks all other heterozygous calls
+that fall outside of this confidence interval
+```{r}
+SNPs_merge_finalGT %>% 
+  filter(GT == "0/1") %>% 
+  ggplot() + geom_histogram(aes(x = f_Alt)) + 
+  facet_grid(Cut~., scales = "free_y")
+
+```
+
+We tallied site-wise genotype counts for founders and end-point clones. 
+What is the correspondence between these two groups?
+We remove sites with poor support (>1/2 of genotypes NA in either founders or end-point clones)
+```{r, echo = F}
+sitewise_GTs %>% 
+  filter(nNA_anc < 10, nNA_evo < 100) %>% 
+  ggplot() + geom_jitter(aes(x = fHet_anc, y = fHet_evo))
+
+```
+There is an LOH event in one of the W founders, which causes some of the sites to have a fraction 
+heterozygous in the ancestors of just less than 1. 
+
+
+Counts of the number of sites sampled in each clone after final genotyping and filtering.
+```{r}
+
+anc_SNP_counts_xTx <- SNPs_merge_finalGT %>% 
+  filter(Rep == "00", GT == "0/1") %>%
+  count(Tx_ID, ID)
+
+anc_SNP_AOV <- aov(n ~ Tx_ID, data = anc_SNP_counts_xTx)
+anc_AOV_P <- summary(anc_SNP_AOV)[[1]][[1,"Pr(>F)"]] %>% round(digits = 3)
+
+SNP_counts_xTx <- SNPs_merge_finalGT %>% 
+  filter(Rep != "00") %>%
+  count(Tx_ID, ID)
+
+SNP_counts_xTx %>% group_by(Tx_ID) %>% summarize(m = mean(n))
+
+SNP_AOV <- aov(n ~ Tx_ID, data = SNP_counts_xTx)
+AOV_P <- summary(SNP_AOV)[[1]][[1,"Pr(>F)"]] %>% round(digits = 3)
+
+anc_SNP_counts_xTx %>%
+  ggplot() + geom_histogram(aes(x = n), binwidth = 1000) + 
+  facet_grid(Tx_ID~.)
+
+SNP_counts_xTx %>%
+  ggplot() + geom_histogram(aes(x = n), binwidth = 1000) + 
+  facet_grid(Tx_ID~.)
+
+```
+From the sequencing coverage and GQ distributions, there does not seem to be a significant difference in the number 
+of sites sampled. However, the final number of markers used for LOH detection are significantly different among treatments.
+Why is this?
+
+
+```{r}
+
+anc_SNP_LOH_counts_xTx <- LOH_SNPs %>% 
+  filter(Rep == "00") %>%
+  count(Tx_ID, ID)
+
+anc_SNP_AOV <- aov(n ~ Tx_ID, data = anc_SNP_LOH_counts_xTx)
+anc_AOV_P <- summary(anc_SNP_AOV)[[1]][[1,"Pr(>F)"]] %>% round(digits = 3)
+
+SNP_LOH_counts_xTx <- LOH_SNPs %>% 
+  filter(Rep != "00") %>%
+  count(Tx_ID, ID)
+
+SNP_LOH_counts_xTx %>% group_by(Tx_ID) %>% summarize(m = mean(n), s = sd(n))
+
+SNP_AOV <- aov(n ~ Tx_ID, data = SNP_LOH_counts_xTx)
+AOV_P <- summary(SNP_AOV)[[1]][[1,"Pr(>F)"]] %>% round(digits = 3)
+
+anc_SNP_LOH_counts_xTx %>%
+  ggplot() + geom_histogram(aes(x = n), binwidth = 1000) + 
+  facet_grid(Tx_ID~.)
+
+SNP_LOH_counts_xTx %>%
+  ggplot() + geom_histogram(aes(x = n), binwidth = 1000) + 
+  facet_grid(Tx_ID~.)
+
+SNP_LOH_counts_xTx %>%
+  ggplot() + geom_boxplot(aes(x = Tx_ID, y = n))
+
+```
+What proportion of clones have a call at each site?
+```{r}
+
+n_merge_ID_xTx <- SNPs_merge %>%
+  filter(!(ID %in% c(contaminated, bad_seq, whGnm_aneu_ID) | 
+             Line %in% whGnm_aneu_line)) %>%
+  distinct(ID, .keep_all = T) %>%
+  # arrange(ID) %>% select(ID)
+  # group_by(Tx_name) %>%
+  count(Tx_name)
+
+SNP_xTx_POSi <- SNPs_merge %>%
+  filter(!(ID %in% c(contaminated, bad_seq, whGnm_aneu_ID) | 
+             Line %in% whGnm_aneu_line)) %>%
+  filter(!is.na(GT_BYcall), !is.na(GT_RMcall),
+         (GQ_BYcall >= 50 | GQ_RMcall >= 50)) %>%
+  # filter(GT == "0/1") %>% 
+  group_by(Tx_name, Tx_ID) %>%
+  count(Tx_name, Tx_ID, CHROM, POSi) %>% as.data.frame()
+
+
+SNP_xTx_POSi$f <- operate_by_factor_match(n_merge_ID_xTx, 
+                                          SNP_xTx_POSi %>% select(Tx_name, n),
+                                          function(x, y) y/x)
+
+SNP_xTx_POSi %>% 
+  ggplot() + geom_histogram(aes(x = f), binwidth = 0.025) +
+  facet_grid(Tx_name~.)
+
+SNP_xTx_POSi %>% 
+  ggplot() + geom_line(aes(x = POSi, y = f, color = Tx_name)) +
+  facet_wrap(~CHROM, scales = "free_x")
+
+SNP_xTx_POSi %>% 
+  ggplot() + geom_violin(aes(x = Tx_name, y = f)) +
+  facet_wrap(~CHROM)
+
+SNPs_merge %>%
+  filter(!(ID %in% c(contaminated, bad_seq, whGnm_aneu_ID) | 
+             Line %in% whGnm_aneu_line)) %>%
+  # filter(!is.na(GT_BYcall), !is.na(GT_RMcall)) %>%
+  ggplot() + geom_histogram(aes(x = GQ_BYcall)) + facet_grid(Tx_name~.)
+  
+```
+
+```{r}
+
+n_merge_ID_xTx <- SNPs_merge_finalGT %>%
+  distinct(ID, .keep_all = T) %>%
+  # arrange(ID) %>% select(ID)
+  # group_by(Tx_name) %>%
+  count(Tx_name)
+
+SNP_xTx_POSi <- SNPs_merge_finalGT %>%
+  # filter(GT == "0/1") %>% 
+  group_by(Tx_name, Tx_ID) %>%
+  count(Tx_name, Tx_ID, CHROM, POSi) %>% as.data.frame()
+
+
+SNP_xTx_POSi$f <- operate_by_factor_match(n_merge_ID_xTx, 
+                                          SNP_xTx_POSi %>% select(Tx_name, n),
+                                          function(x, y) y/x)
+
+SNP_xTx_POSi %>% 
+  ggplot() + geom_histogram(aes(x = f), binwidth = 0.025) +
+  facet_grid(Tx_name~.)
+
+SNP_xTx_POSi %>% 
+  ggplot() + geom_line(aes(x = POSi, y = f, color = Tx_name)) +
+  facet_wrap(~CHROM, scales = "free_x")
+
+SNP_xTx_POSi %>% 
+  ggplot() + geom_violin(aes(x = Tx_name, y = f)) +
+  facet_wrap(~CHROM)
+```
+
+```{r}
+
+n_LOH_ID_xTx <- LOH_SNPs %>%
+  distinct(ID, .keep_all = T) %>%
+  count(Tx_name)
+
+LOH_markers_xTx_POSi <- LOH_SNPs %>%
+  group_by(Tx_name, Tx_ID) %>%
+  count(Tx_name, Tx_ID, CHROM, POSi) %>% 
+  as.data.frame()
+
+
+LOH_markers_xTx_POSi$f <- operate_by_factor_match(n_LOH_ID_xTx, 
+                                          LOH_markers_xTx_POSi %>% select(Tx_name, n),
+                                          function(x, y) y/x)
+
+LOH_markers_xTx_POSi %>% 
+  ggplot() + geom_histogram(aes(x = f), binwidth = 0.025) +
+  facet_grid(Tx_name~.)
+
+LOH_markers_xTx_POSi %>% 
+  ggplot() + geom_line(aes(x = POSi, y = f, color = Tx_name)) +
+  facet_wrap(~CHROM, scales = "free_x")
+
+LOH_markers_xTx_POSi %>% 
+  ggplot() + geom_violin(aes(x = Tx_name, y = f)) +
+  facet_wrap(~CHROM)
+
+```
+
+
+```{r}
+
+n_LOH_xID <- all_LOHbounds_merge_EC %>% 
+  filter(GT != "0/1") %>% 
+  filter(length == 1) %>%
+  count(Tx_name, ID)  %>%
+  arrange(ID)
+
+n_markers_xID <- LOH_SNPs %>% 
+  filter(Rep != "00") %>%
+  # filter(ID %in% n_LOH_xID$ID) %>%
+  count(Tx_name, ID) %>%
+  arrange(ID)
+
+
+n_LOH_xID <- merge(n_LOH_xID, n_markers_xID, by = c("Tx_name", "ID"), suffixes = c("_LOH", "_markers"), all = T)
+n_LOH_xID$n_LOH[is.na(n_LOH_xID$n_LOH)] <- 0
+
+loh_marker_lm <- lm(n_LOH ~ n_markers, data = n_LOH_xID)
+summary(loh_marker_lm)
+
+n_LOH_xID %>% 
+  ggplot() + geom_point(aes(x = n_markers, y = n_LOH, color = Tx_name))
+
+```
+ The level of variation in the number of markers in this data set has no effect on the number of LOHs detected.
+
+
+```{r}
+all_LOHbounds_merge_EC$start_POS <- ConvertPosIndicies(all_LOHbounds_merge_EC, pos_col = "start_POSi", index_out = "POS")
+all_LOHbounds_merge_EC %>% 
+  filter(GT != "0/1") %>% 
+  filter(length == 1) %>%
+  count(Tx_name, CHROM, start_POSi, start_POS) %>%
+  ggplot() + geom_point(aes(x = start_POS, y = n, color = Tx_name)) +
+  ylim(0, NA) +
+  facet_wrap(CHROM~., scales = "free_x")
+
+```
+
+
+```{r}
+
+singletons <- all_LOHbounds_merge_EC %>% filter(GT != "0/1", length == 1) %>% distinct(start_POSi) %>% pull(start_POSi)
+multi_singletons <- all_LOHbounds_merge_EC %>% 
+  filter(GT != "0/1", length == 1) %>% count(start_POSi) %>% filter(n > 1) %>% pull(start_POSi)
+
+SNPs_merge_finalGT %>% pull(GQ) %>% mean()
+SNPs_merge_finalGT %>% filter(POSi %in% singletons) %>% pull(GQ) %>% mean()
+SNPs_merge_finalGT %>% filter(POSi %in% multi_singletons) %>% pull(GQ) %>% mean()
+
+
+SNPs_merge_finalGT %>% filter(POSi %in% singletons, GT == "0/1") %>% count(Cut)
+SNPs_merge_finalGT %>% filter(POSi %in% multi_singletons, GT == "0/1") %>% count(Cut)
+
+all_error_rates_POSi %>% filter(POSi %in% singletons) %>% count(is_error)
+all_error_rates_POSi %>% filter(POSi %in% multi_singletons) %>% count(is_error)
+```
+
+
+

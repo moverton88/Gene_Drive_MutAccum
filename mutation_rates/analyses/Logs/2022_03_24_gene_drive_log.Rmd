@@ -1,0 +1,328 @@
+---
+title: "2022_03_24_Gene_Drive"
+author: Michael Overton
+date: "2022_03_24"
+output: html_document
+---
+
+
+Import SNP callsets and evaluate their quality. 
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+
+```
+
+## 
+
+```{r}
+# Low coverage
+all_LOHbounds_merge_EC %>% 
+  filter(GT != "0/1", ID %in% c("H_E12", "F_A12", "H_D07", 
+                                "F_C02", "F_C09", "F_G05",
+                                "N_A05", "H_E05", "H_E01", "F_F03")) %>%
+  count(ID, length == 1) %>% pivot_wider(names_from = 'length == 1', 
+                                         names_prefix = "sm_", values_from = n) %>%
+  pull(sm_TRUE) %>% mean()
+
+# High coverage
+all_LOHbounds_merge_EC %>% 
+  filter(GT != "0/1", ID %in% c("N_F07", "H_G02", "N_G09", 
+                                "H_F11", "N_E11", "H_G09",
+                                "N_F05", "H_F05", "F_E12", "H_G06")) %>%
+  count(ID, length == 1) %>% pivot_wider(names_from = 'length == 1', 
+                                        names_prefix = "sm_", values_from = n) %>%
+  pull(sm_TRUE) %>% mean(na.rm = T)
+```
+
+## Cutting dubious hets before performing false homozygous rate estimation
+How does the order affect calculation of false Hom rate
+
+```{r}
+
+LOH_SNPs_uncut <- SNPs_merge_finalGT %>% 
+  filter(QUAL_BYcall >= 1000, QUAL_RMcall >= 1000, GQ >= 50) %>% 
+  select(all_of(final_cols)) %>% 
+  anc_GT_fltr(ancGT = "0/1", ancQual = 0, evoQual = 0)
+
+cut_POSi_H_A <- SNPs_merge_finalGT %>% filter(Rep == "00", Line == "H_A", Cut) %>% pull(POSi)
+cut_POSi_H_A_evo <- SNPs_merge_finalGT %>% 
+  filter(Rep != "00", Line == "H_A", Cut) %>% 
+  count(POSi) %>% 
+  filter(n >= 2) %>% 
+  pull(POSi)
+
+cut_POSi <- LOH_SNPs_uncut %>% filter(Rep == "00", Cut) %>% pull(POSi)
+LOH_SNPs_uncut %>% 
+  filter(Cut) %>% 
+  count(POSi) %>% ggplot() + geom_histogram(aes(x = n), binwidth = 1)
+# LOH_SNPs$CHROM <- factor(str_pad(LOH_SNPs$CHROM, 2, pad = "0"))
+
+LOH_SNPs_uncut %>% 
+  # filter(POSi %in% cut_POSi) %>% 
+  count(Rep == "00", Cut)
+
+sitewise_GTs %>% 
+  filter(POSi %in% cut_POSi_H_A)
+
+sitewise_GTs_H_A_uncut <- SNPs_merge_finalGT %>% 
+  filter(GQ >= 50, Line == "H_A") %>%
+  site_genotype_stats(group = "all")
+
+sitewise_GTs_H_A_uncut %>% 
+  # filter(nHom_anc != 0, nHet_evo >= 4) %>%
+  filter(POSi %in% cut_POSi_H_A_evo)
+
+sitewise_GTs_H_A <- SNPs_merge_finalGT %>% 
+  filter(GQ >= 50, Line == "H_A", !Cut) %>%
+  site_genotype_stats(group = "all")
+
+all_error_rates_uncut_POSi <- SNPs_merge_finalGT %>% 
+  filter(GQ >= 50, !Line %in% noAncestor, QUAL_BYcall >= 1000, QUAL_RMcall >= 1000) %>%
+  errorFromPhylo(flsHom_support = 4, flsHet_support = 6, output_POSi = T)
+
+error_uncut_LinePOSi <- all_error_rates_uncut_POSi %>% filter(is_error) %>% mutate(Line_POSi = paste0(Line, "_", POSi))
+error_SNPs_Line_POSi <- SNPs_merge_finalGT %>%
+  filter(GQ >= 50, QUAL_BYcall >= 1000, QUAL_RMcall >= 1000, Cut) %>% 
+  mutate(Line_POSi = paste0(Line, "_", POSi)) %>%
+  filter(Line_POSi %in% error_uncut_LinePOSi$Line_POSi)
+error_SNPs_alleleImb <- error_SNPs_Line_POSi %>% 
+  filter(Rep != "00") %>% group_by(Line_POSi) %>% 
+  summarize(f_Ref = mean(1 - f_Alt), sd_Ref = sd(1 - f_Alt))
+
+error_POSi_merge <- merge(error_uncut_LinePOSi[, c("Line_POSi", "anc_GT")], error_SNPs_alleleImb, by = "Line_POSi")
+
+error_POSi_merge %>% ggplot() + geom_jitter(aes(x = anc_GT, y = f_Ref, color = sd_Ref), width = 0.2, height = 0) + ylim(0, 1)
+
+all_error_rates_H_A <- SNPs_merge_finalGT %>% 
+  filter(GQ >= 50, Line == "H_A", QUAL_BYcall >= 1000, QUAL_RMcall >= 1000, !Cut) %>%
+  errorFromPhylo(flsHom_support = 4, flsHet_support = 6, output_POSi = F)
+
+
+all_error_rates_H_A_uncut <- SNPs_merge_finalGT %>% 
+  filter(GQ >= 50, Line == "H_A", QUAL_BYcall >= 1000, QUAL_RMcall >= 1000) %>%
+  errorFromPhylo(flsHom_support = 4, flsHet_support = 6, output_POSi = F)
+all_error_rates_H_A_POSi <- all_error_rates_POSi %>% filter(Line == "H_A")
+all_error_rates_H_A_uncut_POSi <- SNPs_merge_finalGT %>% 
+  filter(GQ >= 50, Line == "H_A", QUAL_BYcall >= 1000, QUAL_RMcall >= 1000) %>%
+  errorFromPhylo(flsHom_support = 4, flsHet_support = 6, output_POSi = T)
+all_error_rates_H_A_uncut_POSi %>% filter(is_error)
+all_error_rates_H_A_uncut_POSi %>% 
+  filter(POSi %in% cut_POSi_H_A_evo, anc_GT != "0/1")
+
+head(cut_POSi_H_A_evo)
+SNPs_merge_finalGT %>% filter(POSi == 27522, Line == "H_A")
+```
+
+# Power calculation
+We need a fast way to do permutations and power curves. Perhaps we can get this to happen with data.tables
+```{r}
+
+SNMcounts_in <- SNMs_final_counts %>% arrange(ID) %>% select(!(c(Line, Rep, dot_color, fill_color)))
+setDT(SNMcounts_in)
+n_clones <- round(mean(n_clones_xTx$n))
+
+pooled_SNMcounts_A <- SNMcounts_in[, .(ID = str_pad(1:.N, 3, pad = "0"), n_SNP)]
+d <- 1.1
+
+pooled_SNMcounts_A[, diff := ..d * n_SNP]
+
+
+sample_A <- pooled_SNMcounts_A[order(sample(1:.N, .N)), ID:n_SNP][1:n_clones] # random shuffle and pull sample
+sample_A[, cv := "A"]
+sample_B <- pooled_SNMcounts_A[order(sample(1:.N, .N)), .(ID, n_SNP = diff)][1:(n_clones - 5)]
+sample_B[, cv := "B"]
+sample_AB <- rbindlist(list(sample_A, sample_B))
+
+perm_test_DT <- function(DT, cat_var, cat_names = NULL, response_var, test_stat = mean, 
+                      n_perms = 10000, alpha = 0.05, alt_hyp = "two-tailed", include_matrix = F) {
+  # DT <- sample_AB
+  # cat_var = "cv"
+  # cat_names = c("A", "B")
+  # response_var = "n_SNP"
+  # test_stat = mean
+  # n_perms = 1000
+  
+  # Construct permutation data.table. Sample values from each group with replacement
+  # and label with permutation number and individual number
+  perms_AB <- DT[, .(cn = unlist(lapply(vector(mode = "list", length = n_perms),
+                                 function(x) .SD[sample(.N, .N, replace=TRUE), ..response_var]))), 
+                 by = cat_var][, perm := rep(1:n_perms, each = .N/n_perms), by = cat_var][, rep := rep(1:(.N), each = 1), by = cat_var]
+  setnames(perms_AB, "cn", (response_var)) # replace temp colname with that from data
+  setkeyv(perms_AB, c(cat_var, response_var)) # set columns to operate over
+  # if function is from the stat tests, can feed in response and category variables into formula
+  test_stat_AB <- perms_AB[, lapply(.SD, function(x) .FUN(x ~ get(cat_var))$statistic), keyby = perm, .SDcols = response_var]
+  setnames(test_stat_AB, response_var, "stat") # response variable becomes test statistic
+  if(alt_hyp == "two-tailed") {
+    i_test_low <- floor(n_perms * (alpha/2))
+    i_test_hi <- ceiling(n_perms * (1 - alpha/2))
+
+    test_stat_AB[order(stat)][c(i_test_low, i_test_hi),]
+  }
+   # get threshold value 
+  
+  
+  means_AB <- perms_AB[, lapply(.SD, mean), keyby = .(cv, perm), .SDcols = response_var]
+  
+  means_AB_wide <- dcast(means_AB, perm ~ cv, value.var = response_var)
+  means_AB_diff <- means_AB_wide[, .(diff = A - B)][order(diff)]
+  
+  # means_AB <- perms_AB[, sum(n_SNP) / .N, by = .(perm, cv)]
+  # .Fun = t.test
+  l_rVar <- quote(response_var)
+  .FUN = wilcox.test
+  .FUN <- function(x, y) {
+    
+  }
+  
+  diffs_AB <- perms_AB[, .(perm_value = .FUN(.SD[cv == "A", response_var, with = F],  
+                              .SD[cv == "B", response_var, with = F])$statistic), 
+                       by = .(perm)]
+  
+  diffs_AB <- perms_AB[, t.test(.SD[cv == "A", n_SNP, with = F],  
+                              .SD[cv == "B", n_SNP, with = F])$statistic, 
+                       by = .(perm)]
+  
+  diffs_AB[, order(perm_value)][1:round(.N * ..alpha)]
+}
+
+```
+
+
+```{r}
+n_perms <- 10
+
+# Directly sample data repeatedly to create a long data table of permutations for each 
+# population
+# permutation number and independent samples with replacement from data
+perms_A <- sample_A[, .(perm = rep(1:.N, each = n_perms), 
+                        n_SNP = unlist(lapply(vector(mode = "list", length = n_perms),
+                             function(x) sample(n_SNP, .N, replace = F))))]
+perms_A[, cv := "A"]
+
+# Need to change so that counts are sampled rather than incremental increases
+perms_B <- sample_B[, .(perm = rep(1:.N, each = n_perms), 
+                        n_SNP = unlist(lapply(vector(mode = "list", length = n_perms), 
+                             function(x) sample(n_SNP, .N, replace = F))))]
+perms_B[, cv := "B"]
+
+# bind permutation data tables
+perms_AB <- rbindlist(list(perms_A, perms_B))
+
+# Get difference in means
+perms_AB[, , by = cat]
+
+```
+
+Current method for generating power curves
+```{r}
+pooled_SNM_B <- pooled_SNMcounts_A
+# set difference between distribution medians
+d_mu_SNM <- seq(0.5, 1, 0.05)
+pos_vs_ES <- data.frame(NULL)
+pooled_SNM_B <- pooled_SNMcounts_A
+mean_A <- mean(pooled_SNMcounts_A$n_SNM)
+n_iterations <- 100
+for(j in 1:length(d_mu_SNM)) {
+  # j = 5
+  # cannot add fractional effect sizes to count data.
+  # Instead, calculate number of events to add to achieve 
+  # the effect size, draw this number of clones with replacement, 
+  # count the incidence of each clone and add that number to the
+  # event count
+  n_tot_SNM <- sum(pooled_SNM_B$n_SNM)
+  n_addF <- round((d_mu_SNM[j]) * n_tot_SNM)
+  t_addF <- sample(1:nrow(pooled_SNM_B), floor(n_addF), replace = T) %>% 
+    table() %>% as.data.frame()
+  i_add <- as.numeric(levels(t_addF[, 1]))[t_addF[, 1]]
+  n_add_i <- t_addF[, 2]
+  pooled_SNM_B$n_SNM_es <- pooled_SNM_B$n_SNM
+  pooled_SNM_B$n_SNM_es[i_add] <- pooled_SNM_B$n_SNM[i_add] + n_add_i
+  pooled_SNMcounts_B <- data.frame(clone_ID = str_pad(1:nrow(pooled_SNM_B), 3, pad = "0"), 
+                                   n_SNM = pooled_SNM_B$n_SNM_es, stringsAsFactors = T)
+  mean_B <- mean(pooled_SNMcounts_B$n_SNM)
+  # Sample "clones" for A and B groups
+  p_out <- c()
+  for(i in 1:n_iterations) {
+    sample_A <- data.frame(sample = "A",
+                           n_SNM = sample(x = pooled_SNMcounts_A$n_SNM, 
+                                          size = n_clones, replace = T), stringsAsFactors = T)
+    sample_B <- data.frame(sample = "B", 
+                           n_SNM = sample(x = pooled_SNMcounts_B$n_SNM, 
+                                          size = n_clones, replace = T), stringsAsFactors = T)
+    
+    samples_in <- rbind(sample_A, sample_B)
+    # for(i in 1:10) { 
+    sample_perm_list <- samples_in %>% 
+      perm_test(df_in = ., cat_var ="sample", cat_names = c("A", "B"), response_var = "n_SNM", 
+                n_perms = 1000, alpha = 0.05, alt_hyp = "two-tailed", test_stat = mean)
+    p_out <- c(p_out, sample_perm_list$pVal)
+    if(i %% 10 == 0) {
+      print(paste0(i, "/1000"))
+    }
+  }
+  sig_0.05 <- sum(p_out < 0.05)/length(p_out)
+  sig_0.01 <- sum(p_out < 0.01)/length(p_out)
+  pos_vs_ES_j <- data.frame(ES = d_mu_SNM[j], sig_0.05 = sig_0.05, sig_0.01 = sig_0.01, mean_A, mean_B)
+  pos_vs_ES <- rbind(pos_vs_ES, pos_vs_ES_j)
+  print(paste0(j, "/", length(d_mu_SNM)))
+}
+
+```
+
+
+Now, we can construct a long data.table with all effect sizes and replicates for each distribution (null and null + ES)
+
+```{r}
+n_clones <- 100 # Start with 100 MA lines for each treatment
+mu <- 12 # Expected mean LOH count for 1.6E-2 and 750 generations
+es <- as.list(seq(1, 1.5, 0.05)) # effect sizes from 0 to 100% by 10% incriments
+n_reps <- 100 # number of replicate experiments
+n_p <- 100 # number of permutations for perm_test_DT
+
+dist_null <- data.frame(dist = "null",
+                        ES = unlist(lapply(es, function(x) rep(x, each = n_clones))),
+                        replicate(n_reps, rpois(n_clones, mu)))
+
+setDT(dist_null)
+dist_pois <- data.frame(dist = "pois",
+                        ES = unlist(lapply(es, function(x) rep(x, each = n_clones))),
+                        replicate(n_reps, unlist(lapply(es, function(x) rpois(n_clones, mu) + rpois(n_clones, (x * mu - mu))))))
+setDT(dist_pois)
+
+dist_all <- rbindlist(list(dist_null, dist_pois))
+
+dist_all_long <- melt(dist_all,
+                      id.vars = c("dist", "ES"),
+                      measure.vars = patterns("^X"), variable.name = "repl",
+                      value.name = "sm")
+
+# Show that sampling produces expected distributions and means
+dist_all_long %>%
+  as.data.frame() %>%
+  filter(dist == "pois") %>%
+  ggplot(aes(x = sm)) +
+  geom_histogram(binwidth = 1) + facet_grid(ES~.)
+
+dist_all_long[dist == "pois", .(mean(sm)), by = ES][, .(V1, 12 * ES), by = ES] %>%
+  as.data.frame() %>%
+  ggplot() +
+  geom_point(aes(x = V2, y = V1))
+
+
+# performs one perm_test on each random draw 
+p_pois_ES <- dist_all_long[, .SD[, perm_test_DT(.SD, n_perms = n_p)],
+                           by = c("ES", "repl"), 
+                           .SDcols = c("dist", "sm")][order(ES)]
+
+# Show distribution of p-values for each ES
+p_pois_ES %>% 
+  ggplot() + geom_histogram(aes(x = V1), binwidth = 0.005) + facet_grid(ES~.)
+
+# Power as a fraction of positive tests vs ES
+Power_ES <- p_pois_ES[V1 < alpha, .(power = .N/1000), by = ES]
+
+
+```
+

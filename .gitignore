@@ -1,0 +1,4 @@
+*Scratch*
+local/
+*.RData
+mutation_rates/snapshots/
