@@ -149,7 +149,7 @@ pois_PM_power_plot
 priori_power_figure <- plot_grid(LOH_pois_power_plot, pois_PM_power_plot,
                     labels = c("C", "D"),
                     align = "v",
-                    scale = 1,
+                    scale = 0.9,
                     label_size = 20,
                     hjust = 0,
                     ncol = 2, nrow = 1) + 
@@ -186,7 +186,6 @@ dist_pois <- data.frame(dist = "pois",
                         ES = unlist(lapply(es, function(x) rep(x, each = n_clones))),
                         replicate(n_reps, unlist(lapply(es, function(x) 
                           sample(LOHcounts_in$n, n_clones) + rpois(n_clones, (x * mu - mu))))))
-# unlist(es) * mu - mu
 
 obs_LOH_all <- rbind(dist_null, dist_pois)
 obs_LOH_all_long <- obs_LOH_all %>% 
@@ -208,9 +207,11 @@ obs_LOH_list <- split(obs_LOH_all_long[, c("dist", "sm")], obs_LOH_all_long$ES_r
 rm(obs_LOH_all_long)
 
 
-result_obs_LOH <- pblapply(obs_LOH_list, function(x) perm_test(x, cat_var = "dist", 
-                                                          cat_names = c("null", "pois"),
-                                                          response_var = "sm", n_perms = n_p, rtrn = "p"))
+result_obs_LOH <- pblapply(obs_LOH_list, 
+                           function(x) perm_test(x, cat_var = "dist", 
+                                                 cat_names = c("null", "pois"),
+                                                 response_var = "sm", n_perms = n_p, rtrn = "p"))
+
 # RUN
 result_obs_LOH_matrix <- matrix(result_obs_LOH, ncol = length(es))
 colnames(result_obs_LOH_matrix) <- paste0("ES_", es)
@@ -320,9 +321,10 @@ obs_power_figure <- plot_grid(obs_LOH_power_plot, obs_PM_power_plot,
                                  labels = c("A", "B"),
                                  align = "v",
                                  scale = 0.9,
-                                 label_size = 20,
+                                 label_size = 40,
                                  hjust = 0,
-                                 ncol = 2, nrow = 1)
+                                 ncol = 2, nrow = 1) + 
+  theme(panel.background = element_rect(fill = "white"))
 
 obs_power_figure
 

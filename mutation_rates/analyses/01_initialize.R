@@ -57,6 +57,9 @@ RMxBY_file <- file.path(posDir, "RMxBY_ref_noMit.vcf")
 RMxBY_comp_file <- file.path(posDir, "RMxBY_comp_ref_bcf.vcf")
 repeats_file <- paste0(posDir, "BY_repetitiveElements.bed")
 colony_fn <- paste0(dataDir, "colony_size/2019.06.07_colony_sizes.tsv")
+D_drive_const_file <- paste0(allVarDir, "Drive/F_Cas9_default_allVar.vcf")
+C_drive_const_file <- paste0(allVarDir, "Drive/H_Cas9_default_allVar.vcf")
+W_drive_const_file <- paste0(allVarDir, "Drive/N_Cas9_default_allVar.vcf")
 # Sui_GC_file <- paste0(dataDir, "Sui_GC_lengths.txt")
 
 # Filenames for saving objects
@@ -71,6 +74,8 @@ bounds_filename <- paste0(dataIntDir, "all_LOHbounds_EC_2022_03.RData")
 countsEC_filename <- paste0(dataIntDir, "all_LOHcounts_EC_2022_03.RData")
 counts_filename <- paste0(dataIntDir, "all_LOHcounts_2022_03.RData")
 
+triploid_merge_raw_filename <- paste0(dataIntDir, "triploid_SNPs_merge.RData")
+triploid_merge_filename <- paste0(dataIntDir, "triploid_SNPs_final.RData")
 
 # Define asthetics
 theme_set(theme_minimal() + 
@@ -84,6 +89,9 @@ allelePal <- c("orange2", "grey20", "blue3")
 Tx_levels <- c("N", "H", "F")
 Tx_ID_levels <- c("W", "C", "D")
 Tx_name_levels <- c("WT", "Cas9", "Drive")
+
+# End-point clones tested for drive activity
+DA_clones <- c("F_A09", "F_C02", "F_D01", "F_F03", "F_F07", "F_G10")
 
 # Chormosome indexing objects ------
 roman_chr <- factor(as.character(as.roman(1:16)), levels = as.character(as.roman(1:16)))

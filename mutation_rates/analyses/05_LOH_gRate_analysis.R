@@ -9,30 +9,20 @@
 # LOH number distributions follow a poisson distribution
 
 # Load in counts table
-# LOHcounts_in <- all_LOHcounts_merge_NS
+# LOHcounts_in <- all_LOHcounts_merge
+LOHcounts_in <- all_LOHcounts_merge_NS
 # LOHcounts_in <- all_LOHcounts_merge_HE
-LOHcounts_in_all <- all_LOHcounts_merge
-LOHcounts_in_all$Tx <- substr(LOHcounts_in_all$Tx_name, 1, 1)
-LOHcounts_in_all$Tx_ID <- Recode_Tx_ID(LOHcounts_in_all$Tx)
-LOHcounts_in_all <- LOHcounts_in_all %>% arrange(Tx_ID, ID)
+# LOHcounts_in <- all_LOHcounts_merge_EC
 
-LOH_final_counts_stats_all <- LOHcounts_in_all %>% 
-  group_by(Tx_ID) %>% 
-  summarize(n_clones = n(),
-            tot_LOH = sum(n_LOH))
-
-LOHcounts_in <- all_LOHcounts_merge_EC
-LOHcounts_in$Tx <- substr(LOHcounts_in$Tx_name, 1, 1)
 LOHcounts_in$Tx_ID <- Recode_Tx_ID(LOHcounts_in$Tx)
-# LOHcounts_in$Tx_ID <- factor(LOHcounts_in$Tx_ID, levels = c("D", "C", "W"))
 LOHcounts_in <- LOHcounts_in %>% arrange(Tx_ID, ID)
 
 # LOHcounts_in %>% arrange(desc(n_LOH)) %>% head()
 
 # Permutation test of equal median n_LOH for ea vs ea Tx --------
-LOHcounts_in %>% group_by(Tx_name) %>% summarize(median_nLOH = median(n_LOH))
+LOHcounts_in %>% group_by(Tx_ID) %>% summarize(median_nLOH = median(n_LOH))
 LOHcounts_in %>% # filter(!Line %in% c("H_F", "H_H")) %>% 
-  group_by(Tx_name) %>% summarize(mean_nLOH = mean(n_LOH))
+  group_by(Tx_ID) %>% summarize(mean_nLOH = mean(n_LOH))
 
 
 LOH_final_counts_stats <- LOHcounts_in %>% 
@@ -47,47 +37,50 @@ LOH_final_counts_stats <- LOHcounts_in %>%
             genrateCI95lo = (mean(n_LOH) - se(n_LOH)*1.96)/n_gens, 
             genrateCI95hi = (mean(n_LOH) + se(n_LOH)*1.96)/n_gens)
 
-N_H_perm_list <- LOHcounts_in %>% 
+W_C_mean_perm <- LOHcounts_in %>% 
   # filter(!Line %in% c("H_F", "H_H")) %>%
-  perm_test(df=., cat_var ="Tx_name", cat_names = c("Cas9", "WT"), response_var = "n_LOH", 
-            n_perms = 10000, alpha=0.05, alt_hyp = "two-tailed", test_stat = mean)
+  perm_test(df=., cat_var ="Tx_ID", cat_names = c("C", "W"), response_var = "n_LOH", 
+            n_perms = 10000, alpha = 0.01, alt_hyp = "two-tailed", test_stat = mean)
 
-N_F_perm_list <- LOHcounts_in %>% 
-  perm_test(df=., cat_var ="Tx_name", cat_names = c("Drive", "WT"), response_var = "n_LOH", 
-            n_perms = 10000, alpha=0.05, alt_hyp = "two-tailed", test_stat = mean)
+W_D_mean_perm <- LOHcounts_in %>% 
+  perm_test(df=., cat_var ="Tx_ID", cat_names = c("D", "W"), response_var = "n_LOH", 
+            n_perms = 10000, alpha = 0.01, alt_hyp = "two-tailed", test_stat = mean)
 
-H_F_perm_list <- LOHcounts_in %>% 
-  perm_test(df=., cat_var ="Tx_name", cat_names = c("Cas9", "Drive"), response_var = "n_LOH", 
-            n_perms = 10000, alpha=0.05, alt_hyp = "two-tailed", test_stat = mean)
+C_D_mean_perm <- LOHcounts_in %>% 
+  perm_test(df=., cat_var ="Tx_ID", cat_names = c("D", "C"), response_var = "n_LOH", 
+            n_perms = 10000, alpha = 0.01, alt_hyp = "two-tailed", test_stat = mean)
 
 # Permutation test of equal variance across Tx -------------
-N_H_permIQR_list <- LOHcounts_in %>% 
-  perm_test(df=., cat_var ="Tx_name", cat_names = c("Cas9", "WT"), response_var = "n_LOH", 
-            n_perms = 10000, alpha=0.05, alt_hyp = "two-tailed", test_stat = IQR)
+W_C_IQR_perm <- LOHcounts_in %>% 
+  # filter(!Line %in% c("H_F", "H_H")) %>%
+  perm_test(df=., cat_var ="Tx_ID", cat_names = c("C", "W"), response_var = "n_LOH", 
+            n_perms = 10000, alpha = 0.01, alt_hyp = "two-tailed", test_stat = IQR)
 
-N_F_permIQR_list <- LOHcounts_in %>% 
-  perm_test(df=., cat_var ="Tx_name", cat_names = c("Drive", "WT"), response_var = "n_LOH", 
-            n_perms = 10000, alpha=0.05, alt_hyp = "two-tailed", test_stat = IQR)
+W_D_IQR_perm <- LOHcounts_in %>% 
+  perm_test(df=., cat_var ="Tx_ID", cat_names = c("D", "W"), response_var = "n_LOH", 
+            n_perms = 10000, alpha = 0.01, alt_hyp = "two-tailed", test_stat = IQR)
 
-H_F_permIQR_list <- LOHcounts_in %>% 
-  perm_test(df=., cat_var ="Tx_name", cat_names = c("Cas9", "Drive"), response_var = "n_LOH", 
-            n_perms = 10000, alpha=0.05, alt_hyp = "two-tailed", test_stat = IQR)
+C_D_IQR_perm <- LOHcounts_in %>% 
+  perm_test(df=., cat_var ="Tx_ID", cat_names = c("D", "C"), response_var = "n_LOH", 
+            n_perms = 10000, alpha = 0.01, alt_hyp = "two-tailed", test_stat = IQR)
 
-mean_p <- c(round(N_H_perm_list$p_value, 3), round(N_F_perm_list$p_value, 3), round(H_F_perm_list$p_value, 3))
-median_is_sig <- ifelse(mean_p <= 0.05, "*", "")
+mean_p <- c(round(W_D_mean_perm$p_value, 3),
+            round(W_C_mean_perm$p_value, 3),
+            round(C_D_mean_perm$p_value, 3))
+median_is_sig <- ifelse(mean_p <= 0.01, "*", "")
 
-IQR_p <- c(round(N_H_permIQR_list$p_value, 3), round(N_F_permIQR_list$p_value, 3), round(H_F_permIQR_list$p_value, 3))
+IQR_p <- c(round(W_D_IQR_perm$p_value, 3),
+           round(W_C_IQR_perm$p_value, 3),
+           round(C_D_IQR_perm$p_value, 3))
 IQR_is_sig <- ifelse(IQR_p <= 0.05, "*", "")
 
-N_H_test_label <- paste0("mean p = ", mean_p[1], median_is_sig[1],
+W_D_test_label <- paste0("mean p = ", mean_p[1], median_is_sig[1],
                          "\nIQR p = ", IQR_p[1], IQR_is_sig[1])
-N_F_test_label <- paste0("mean p = ", mean_p[2], median_is_sig[2],
+W_C_test_label <- paste0("mean p = ", mean_p[2], median_is_sig[2],
                          "\nIQR p = ", IQR_p[2], IQR_is_sig[2])
-H_F_test_label <- paste0("mean p = ", mean_p[3], median_is_sig[3],
+C_D_test_label <- paste0("mean p = ", mean_p[3], median_is_sig[3],
                          "\nIQR p = ", IQR_p[3], IQR_is_sig[3])
 
-
-DA_clones <- c("F_A09", "F_C02", "F_D01", "F_F03", "F_F07", "F_G10")
 
 LOHcounts_in$dot_color <- txPal[as.numeric(LOHcounts_in$Tx_name)]
 LOHcounts_in$fill_color <- txPal[as.numeric(LOHcounts_in$Tx_name)]
@@ -396,6 +389,11 @@ pois_df$Tx_ID <- substr(pois_df$Tx_name, 1, 1)
 pois_df$Tx_ID <- factor(pois_df$Tx_ID, levels = c("D", "C", "W"))
 
 # Estimate p-values for null hyp of equal variances by Tx ------
+LOHcount_pois <- LOHcounts_in %>% select(ID, n_LOH, Tx_ID) %>% group_by(Tx_ID) %>% 
+  mutate(pois = rpois(n = n(), lambda = mean(n_LOH)))
+
+perm_test(LOHcount_pois, cat_var = "Tx_ID", cat_names = c("W", "D"), response_var = 
+
 nTrials <- 10000
 var_list <- list()
 var_sample <- list()

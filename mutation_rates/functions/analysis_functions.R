@@ -1317,6 +1317,54 @@ MarkErrorLOH <- function(markedBounds_df, error_rate) {
   return(markedBounds_mrkErr_df)
 }
 
+MarkErrorLOH_pooled <- function(markedBounds_df, error_rate) {
+  # markedBounds_df <- all_GT_bounds_merge
+  # error_rate <- overall_F_Hom_rate
+  rownames(markedBounds_df) <- NULL
+  # Total number of markers sampled
+  nSites_pool <- markedBounds_df %>% 
+    summarise(nSites = sum(length))
+  # Expected number of false homozygous calls
+  nFP_estimate <- ceiling(nSites_pool$nSites * error_rate)
+  
+  markedBounds_df$is_error <- F
+  # index LOHs, singletons, and doubletons
+  i_LOH <- markedBounds_df$GT != "0/1"
+  i_singles <- which(markedBounds_df$length == 1 & i_LOH)
+  i_doubles <- which(markedBounds_df$length == 2 & i_LOH)
+  
+  
+  if(length(i_singles) > nFP_estimate) {
+    # if more singletons than false homs, randomly sample singletons as errors
+    i_err_singles <- sample(i_singles, nFP_estimate, replace = F)
+  } else if(length(i_singles) == nFP_estimate) {
+    # if same number of singletons and false homs, all singletons are errors
+    i_err_singles <- i_singles
+  } else if(length(i_singles) < nFP_estimate &
+            length(i_doubles) > nFP_doubles) {
+    # if more false homs than singletons, all singletons are errors
+    # and randomly sample doubletons for errors
+      nFP_doubles <- nFP_estimate - length(i_singles)
+    i_err_singles <- i_singles
+    max_i_sampled <- 3
+    while(max_i_sampled > 2) {
+      # sample doublets with replacement. Only keep sampling if 
+      # all doublets have been sampled <= 2 times
+    i_err_doubles <- sample(i_doubles, nFP_doubles, replace = T)
+    err_doubles_t <- table(i_err_doubles)
+    max_i_sampled <- max(err_doubles_t)
+    }
+    is_single_err <- err_doubles_t == 1
+    i_dbls_single_err <- as.numeric(names(err_doubles_t)[is_single_err])
+    i_dbls_double_err <- as.numeric(names(err_doubles_t)[!is_single_err])
+  } else {
+    print("too many errors to accomodate")
+  }
+  markedBounds_df$length[i_dbls_single_err] <- 1
+  markedBounds_df$is_error[c(i_err_singles, i_dbls_double_err)] <- T
+  return(markedBounds_df)
+}
+
 MarkTerminalLOHs <- function(markedBounds_df, ancHet = LOH_SNPs) {
   # markedBounds_df <- all_LOHbounds_merge_EC
   if(class(markedBounds_df$ID) != "factor") {

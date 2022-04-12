@@ -129,6 +129,7 @@ SNPs_merge <- SNPs_merge %>% filter(!repeats) %>% select(-repeats)
 
 ## Write table of merged VCFs ##
 # save(SNPs_merge, file = SNPs_merge_raw_filename)
+# load(file = SNPs_merge_raw_filename)
 
 # Number of sites initially sampled
 n_BY_sites <- SNPs_merge %>% 
@@ -181,6 +182,23 @@ ID_allele_bias %>%
 whGnm_aneu_line <- c("F_B", "F_E")
 whGnm_aneu_ID <- c("N_B12")
 
+# Does the heterozygous call allele bias due to triploidy interfere with
+# our ability to filter out dubious heterozygous calls?
+# High-confidence het markers have about the same allele bias dist
+# as unknown ones. Since we generate the confidence intervals with
+# empirical distributions, this should work with bias due to 
+# triploidy. 
+SNPs_merge %>% 
+  filter(Line %in% c("F_B", "F_E"), GT_RMcall == "0/1") %>% 
+  ggplot() + 
+  geom_histogram(aes(x = Ref_DP_RMcall/(Ref_DP_RMcall + Alt_DP_RMcall), 
+                                        fill = POSi %in% clean_markers)) +
+  scale_y_log10()
+
+# These founder groups are processed in parallele with the script
+# triploid_mainDataFrames.R
+
+
 # Get the set of founders that did not sequence well for 
 # later genotype imputation
 anc_lines <- SNPs_merge %>% 
@@ -215,7 +233,6 @@ SNPs_merge_finalGT <- SNPs_merge_finalGT %>%
          !(GT == "1/1" & Alt_DP_final <= 3),
          !(GT == "0/0" & Ref_DP_final <= 3)) 
 
-
 # Mark heterozygous calls that have excessive allele imbalance
 SNPs_merge_finalGT$Cut <- MarkDubiousHets(SNPs_merge_finalGT, .alpha = 0.05)
 
@@ -224,6 +241,12 @@ SNPs_merge_finalGT <- SNPs_merge_finalGT %>%
   InferMissingFounders(missing_founders = noAncestor)
 SNPs_merge_finalGT <- SNPs_merge_finalGT %>% FormatSNPsMerge()
 
+# Are there any duplicated positions in any clones?
+SNPs_merge_finalGT %>%
+  count(ID, POSi) %>% 
+  filter(n > 1) %>% nrow()
+
+# load(file = SNPs_merge_filename)
 # Count each genotype for each site across founder clones and 
 # end-point clones independently
 sitewise_GTs <- SNPs_merge_finalGT %>% 
@@ -231,13 +254,11 @@ sitewise_GTs <- SNPs_merge_finalGT %>%
   site_genotype_stats(group = "all") %>%
   mutate(nHom_anc = nRef_anc + nRef_anc)
 
-# Identify and count markers that are heterozygous across nearly all founders
-n_markers <- nrow(sitewise_GTs)
-clean_markers <- sitewise_GTs %>% 
-  filter(nHom_anc <= 1, nHet_anc >= 4) %>% pull(POSi)
-n_markers_clean <- length(clean_markers)
-
 # Get IDs of all end-point clones with SNP data
+all_IDs <- SNPs_merge_finalGT %>% 
+  distinct(ID, .keep_all = T) %>% 
+  pull(ID) %>% as.character()
+
 evo_IDs <- SNPs_merge_finalGT %>% 
   distinct(ID, .keep_all = T) %>% 
   filter(Rep != "00") %>% pull(ID) %>% as.character()
@@ -268,16 +289,7 @@ all_error_rates <- SNPs_merge_finalGT %>%
   filter(!Line %in% noAncestor, 
          QUAL_BYcall >= 1000, QUAL_RMcall >= 1000, !Cut) %>%
   errorFromPhylo(flsHom_support = 4, flsHet_support = 6, output_POSi = F)
-  
-all_error_rates_BYcall <- SNPs_merge_finalGT %>% 
-  filter(!Line %in% noAncestor, 
-         QUAL_BYcall >= 1000, !Cut_BYcall) %>%
-  errorFromPhylo(flsHom_support = 4, flsHet_support = 6, output_POSi = F)
 
-# all_error_rates_uncut <- SNPs_merge_finalGT %>%
-#   filter(!Line %in% noAncestor,
-#          QUAL_BYcall >= 1000, QUAL_RMcall >= 1000) %>%
-#   errorFromPhylo(flsHom_support = 4, flsHet_support = 6, output_POSi = F)
 
 overall_F_Hom_rate <- sum(all_error_rates$n_F_Hom)/sum(all_error_rates$n_Het_q)
 overall_F_Het_rate <- sum(all_error_rates$n_F_Het)/sum(all_error_rates$n_Hom_q)
@@ -294,6 +306,15 @@ high_error_POSi <- c(mixed_anc_GT_POSi, repeat_error_POSi)
 
 SNPs_merge_finalGT <- SNPs_merge_finalGT %>% 
   filter(!POSi %in% high_error_POSi)
+
+# Identify and count markers that are heterozygous across nearly all founders
+n_markers <- nrow(sitewise_GTs)
+sitewise_GTs %>% 
+  filter(!POSi %in% high_error_POSi) %>% nrow()
+clean_markers <- sitewise_GTs %>% 
+  filter(nHom_anc <= 1, nHet_anc >= 4,
+         !POSi %in% high_error_POSi) %>% pull(POSi)
+n_markers_clean <- length(clean_markers)
 
 # Get sites that are het in the founders for LOH detection
 #######################################################################
@@ -340,21 +361,26 @@ n_DN_sites <- denovo_SNPs %>% distinct(POSi) %>% nrow()
 n_dropped_sites <- n_sites_mean - n_SNP_sites
 n_dropped_DN <- n_dropped_sites + n_LOH_sites
 
+# Different clones have different sets of markers. In order to estimate marker
+# distance in an unbiased way, we randomly sample each marker from all clones,
+# and use the distance for that marker. 
 marker_dist <- LOH_SNPs %>% 
   group_by(ID) %>%
   mutate(d_POS = POSi - lag(POSi)) %>% 
-  group_by(POSi) %>%
-  slice_sample(n = 1) %>%
-  select(POSi, d_POS)
+  group_by(POSi) %>% 
+  summarize(m_d_POSi = mean(d_POS))
+  # slice_sample(n = 1) %>%
+  # select(POSi, d_POS)
 
 marker_dist %>%
-  summarize(mn = mean(d_POS, na.rm = T),
-            md = median(d_POS, na.rm = T))
+  ungroup() %>%
+  summarize(mn = mean(m_d_POSi, na.rm = T),
+            md = median(m_d_POSi, na.rm = T))
 
 marker_dist %>%
-  filter(d_POS < 10000) %>%
+  # filter(d_POS < 10000) %>%
   # slice_sample(n = 1000) %>%
-  ggplot() + geom_histogram(aes(x = d_POS), binwidth = 100) +
+  ggplot() + geom_histogram(aes(x = log10(d_POS)), binwidth = 1/3) +
   scale_y_log10()
 
 # Tables of LOH boundaries and counts for each clone ------
@@ -372,48 +398,31 @@ all_GT_bounds_aneuCorr <- all_GT_bounds_aneuCorr %>%
   MarkLOHcomplexes(., gap = 10000)
 
 all_GT_bounds_merge <- all_GT_bounds_aneuCorr %>%
-  MergeComplexLOHs() 
-
-all_GT_bounds_merge <- all_GT_bounds_merge %>% 
-  MarkErrorLOH(., error_rate = overall_F_Hom_rate)
-
-all_GT_bounds_merge <- all_GT_bounds_merge %>% 
+  MergeComplexLOHs() %>% 
   MarkTerminalLOHs(ancHet = LOH_SNPs)
 
-all_LOHcounts_merge_EC <- all_GT_bounds_merge %>% 
-  CountLOHevents(omitError = T)
-all_LOHcounts_merge_EC <- CategoriesFromID(all_LOHcounts_merge_EC)
+# No longer use this error correction. Now, remove all
+# single-marker LOH events.
+# all_GT_bounds_merge <- all_GT_bounds_merge %>% 
+#   MarkErrorLOH_pooled(., error_rate = overall_F_Hom_rate)
+
+all_LOHbounds_merge_NS <- all_GT_bounds_merge %>% 
+  filter(GT != "0/1", length > 1)
+
+all_LOHcounts_merge_NS <- all_LOHbounds_merge_NS %>% 
+  CountLOHevents(omitError = F)
+all_LOHcounts_merge_NS <- CategoriesFromID(all_LOHcounts_merge_NS)
+
+# all_LOHcounts_merge_EC <- all_GT_bounds_merge %>% 
+#   CountLOHevents(omitError = T)
+# all_LOHcounts_merge_EC <- CategoriesFromID(all_LOHcounts_merge_EC)
 
 all_LOHcounts_merge <- all_GT_bounds_merge %>% 
   CountLOHevents(omitError = F)
 all_LOHcounts_merge <- CategoriesFromID(all_LOHcounts_merge)
 
-all_LOHcounts_merge_NS <- all_GT_bounds_merge %>% 
-  filter(length > 1) %>%
-  CountLOHevents(omitError = F)
-all_LOHcounts_merge_NS <- CategoriesFromID(all_LOHcounts_merge_NS)
+# rm(SNPs_merge_finalGT)
 
-all_GT_bounds_merge %>% 
-  filter(GT != "0/1") %>%
-  ggplot() + 
-  geom_histogram(aes(x = log10(est_length))) + 
-  scale_fill_manual(values = c("Grey80", "Grey20")) +
-  scale_y_log10()
-
-all_LOHcounts_merge_EC %>% 
-  ggplot() + geom_histogram(aes(x = n_LOH, fill = Line == "F_D"), binwidth = 1) +
-  scale_fill_manual(values = c("Grey80", "Grey20"))
-
-
-# dfs for uncut LOH_SNPs and uncut error rates
-# all_error_rates_uncut <- all_error_rates
-# overall_F_Hom_rate <- sum(all_error_rates_uncut$n_F_Hom)/sum(all_error_rates_uncut$n_Het_q)
-# overall_F_Het_rate <- sum(all_error_rates_uncut$n_F_Het)/sum(all_error_rates_uncut$n_Hom_q)
-# all_LOHbounds_merge_uncut <- all_LOHbounds_merge_EC
-# all_LOHcounts_merge_uncut <- all_LOHcounts_merge_EC
-# all_LOHcounts_merge_uncut_noEC <- all_LOHcounts_merge
-
-rm(SNPs_merge_finalGT)
 # write LOH tables
 ###############################################################################
 write.table(all_LOHbounds_merge_EC, bounds_filename)

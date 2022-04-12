@@ -1,11 +1,16 @@
+# Mutations may have occurred in the drive construct, disabling
+# its components, and confounding any lack of difference observed
+# in mutation rates. Therefore, reads from each end-point clone were 
+# aligned with that strain's drive cassette and variants were called.
 
+D_const_variants <- HC_multiVcfParse_allVar(D_drive_const_file, all_Alts = T) 
+C_const_variants <- HC_multiVcfParse_allVar(C_drive_const_file, all_Alts = T) 
+W_const_variants <- HC_multiVcfParse_allVar(W_drive_const_file, all_Alts = T)
 
-
-drive_const_variants <- HC_multiVcfParse_allVar(drive_const_file, all_Alts = T) 
 
 drive_const_variants_fltr <- drive_const_variants %>% 
   filter(Sum_DP >= 6) %>% 
-  filter(QUAL >= 1000)
+  filter(QUAL >= 100)
 
 
 alt_NAs <- drive_const_variants %>% 

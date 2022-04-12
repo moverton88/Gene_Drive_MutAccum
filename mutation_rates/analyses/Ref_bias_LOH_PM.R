@@ -1,5 +1,9 @@
-# Check the effect of reference sequence on allele bias in calling genotypes and detecting LOH events
+# Check the effect of reference sequence on allele bias in calling genotypes 
+# and detecting LOH events
 # Start with SNPs_merge from 02_mainDataFrames
+# Split into BY, RM, and final callsets
+# Compare allele bias
+# LOH counts are error-corrected by excluding singleton LOHs
 
 final_dubHet_rate <- SNPs_merge_finalGT %>% 
   filter(GT == "0/1") %>% 
@@ -109,7 +113,13 @@ all_LOHcounts_merge_BYcall <- all_GT_bounds_merge_BYcall %>%
   CountLOHevents(omitError = F)
 all_LOHcounts_merge_BYcall <- CategoriesFromID(all_LOHcounts_merge_BYcall)
 
-all_LOHcounts_merge_BYcall <- all_LOHcounts_merge_BYcall %>% 
+all_LOHcounts_merge_NS_BYcall <- all_GT_bounds_merge_BYcall %>% 
+  filter(length > 1) %>%
+  CountLOHevents(omitError = F)
+all_LOHcounts_merge_NS_BYcall <- CategoriesFromID(all_LOHcounts_merge_NS_BYcall)
+
+
+all_LOHcounts_merge_NS_BYcall <- all_LOHcounts_merge_NS_BYcall %>% 
   mutate(n_BY = n_BYsmpl + n_BYcmplx,
          n_RM = n_RMsmpl + n_RMcmplx,
          callset = "BY")
@@ -210,35 +220,41 @@ all_LOHcounts_merge_RMcall <- all_GT_bounds_merge_RMcall %>%
   CountLOHevents(omitError = F)
 all_LOHcounts_merge_RMcall <- CategoriesFromID(all_LOHcounts_merge_RMcall)
 
-all_LOHcounts_merge_RMcall <- all_LOHcounts_merge_RMcall %>% 
+all_LOHcounts_merge_NS_RMcall <- all_GT_bounds_merge_RMcall %>% filter(length > 1) %>%
+  CountLOHevents(omitError = F)
+all_LOHcounts_merge_NS_RMcall <- CategoriesFromID(all_LOHcounts_merge_NS_RMcall)
+
+
+all_LOHcounts_merge_NS_RMcall <- all_LOHcounts_merge_NS_RMcall %>% 
   mutate(n_BY = n_BYsmpl + n_BYcmplx,
          n_RM = n_RMsmpl + n_RMcmplx,
          callset = "RM") 
 
-all_LOHcounts_merge <- all_LOHcounts_merge %>% 
+
+all_LOHcounts_merge_NS <- all_LOHcounts_merge_NS %>% 
   mutate(n_BY = n_BYsmpl + n_BYcmplx,
          n_RM = n_RMsmpl + n_RMcmplx,
          callset = "Final") 
 
-LOHsums <- all_LOHcounts_merge %>% 
+LOHsums <- all_LOHcounts_merge_NS %>% 
   summarize(n_BY_tot = sum(n_BY), n_RM_tot = sum(n_RM),
             f_BY = sum(n_BY)/(sum(n_BY) + sum(n_RM)))
 
-LOHsums_BYcall <- all_LOHcounts_merge_BYcall %>% 
+LOHsums_BYcall <- all_LOHcounts_merge_NS_BYcall %>% 
   summarize(n_BY_tot = sum(n_BY), n_RM_tot = sum(n_RM),
             f_BY = sum(n_BY)/(sum(n_BY) + sum(n_RM)))
 
-LOHsums_RMcall <- all_LOHcounts_merge_RMcall %>% 
+LOHsums_RMcall <- all_LOHcounts_merge_NS_RMcall %>% 
   summarize(n_BY_tot = sum(n_BY), n_RM_tot = sum(n_RM),
             f_BY = sum(n_BY)/(sum(n_BY) + sum(n_RM)))
 
-loh_cols <- c("Tx_name", "Line", "ID", "n_LOH", "n_BY", "n_RM", "callset")
-by_cols <- c("Tx_name", "Line", "ID")
+loh_cols <- c("Tx_name", "ID", "n_LOH", "n_BY", "n_RM", "callset")
+by_cols <- c("Tx_name", "ID")
 ns <- c("", "_BYcall", "_RMcall")
 
-all_LOHcounts_byCall <- rbind(all_LOHcounts_merge[, loh_cols], 
-                              all_LOHcounts_merge_BYcall[, loh_cols], 
-                              all_LOHcounts_merge_RMcall[, loh_cols])
+all_LOHcounts_byCall <- rbind(all_LOHcounts_merge_NS[, loh_cols], 
+                              all_LOHcounts_merge_NS_BYcall[, loh_cols], 
+                              all_LOHcounts_merge_NS_RMcall[, loh_cols])
 all_LOHcounts_byCall$callset <- factor(all_LOHcounts_byCall$callset, 
                                        levels = c("Final", "BY", "RM"))
 all_LOHcounts_byCall <- all_LOHcounts_byCall %>%
@@ -246,9 +262,9 @@ all_LOHcounts_byCall <- all_LOHcounts_byCall %>%
 
 all_LOHcounts_byCall_mean <- all_LOHcounts_byCall %>%
   group_by(callset) %>%
-  summarize(f_BY_mean = mean(f_BY), 
-            CI_BY_lo =  mean(f_BY) - se(f_BY)*1.96, 
-            CI_BY_up =  mean(f_BY) + se(f_BY)*1.96,
+  summarize(f_BY_mean = mean(f_BY, na.rm = T), 
+            CI_BY_lo =  mean(f_BY, na.rm = T) - se(f_BY, na.rm = T)*1.96, 
+            CI_BY_up =  mean(f_BY, na.rm = T) + se(f_BY, na.rm = T)*1.96,
             bi_CI_lo = 0.5 - sqrt(0.25/n())*1.96,
             bi_CI_up = 0.5 + sqrt(0.25/n())*1.96)
 
@@ -305,9 +321,9 @@ DP_bias_all$callset <- factor(DP_bias_all$callset, levels = c("Final", "BY", "RM
 
 DP_bias_all_mean <- DP_bias_all %>%
   group_by(callset) %>%
-  summarize(f_BY_mean = mean(f_BY), 
-            CI_BY_lo =  mean(f_BY) - se(f_BY)*1.96, 
-            CI_BY_up =  mean(f_BY) + se(f_BY)*1.96,
+  summarize(f_BY_mean = mean(f_BY, na.rm = T), 
+            CI_BY_lo =  mean(f_BY, na.rm = T) - se(f_BY, na.rm = T)*1.96, 
+            CI_BY_up =  mean(f_BY, na.rm = T) + se(f_BY, na.rm = T)*1.96,
             bi_CI_lo = 0.5 - sqrt(0.25/n())*1.96,
             bi_CI_up = 0.5 + sqrt(0.25/n())*1.96)
 DP_bias_all_mean$callset <- factor(DP_bias_all_mean$callset, levels = c("Final", "BY", "RM"))
@@ -400,8 +416,8 @@ DP_bias_plot <- DP_bias_all %>%
   scale_color_manual(values = c("grey45", "#FFC857", "#0D9FEE"), guide = NULL) +
   # facet_grid(callset~.) +
   theme(panel.grid.minor.y = element_blank(),
-        text = element_text(size = 18),
-        legend.position = c(0.95, 0.85))
+        text = element_text(size = 28),
+        legend.position = c(0.95, 0.8))
 
 DP_bias_plot
 
@@ -442,13 +458,13 @@ LOH_bias_plot <- all_LOHcounts_byCall %>%
                  binwidth = 0.05) +
   scale_fill_manual(values = c("grey45", "#FFC857", "#0D9FEE")) +
   scale_color_manual(values = c("grey45", "#FFC857", "#0D9FEE")) +
-  scale_y_continuous(breaks = seq(0, y_max_LOH -1, 10)) +
-  xlim(0, 1) +
+  scale_y_continuous(breaks = seq(0, y_max_LOH - 1, 10)) +
+  # xlim(0, 1) +
   xlab("Fraction of LOH events to BY homolog") +
   ylab("Number of clones") +
   # facet_grid(callset~.) +
   theme(panel.grid.minor.y = element_blank(),
-        text = element_text(size = 18),
+        text = element_text(size = 28),
         legend.position = "none")
 
 LOH_bias_plot
@@ -456,10 +472,13 @@ LOH_bias_plot
 bias_figure <- plot_grid(DP_bias_plot, LOH_bias_plot,
                     labels = c("A", "B"),
                     align = "v",
-                    scale = 1,
-                    label_size = 20,
+                    scale = 0.9,
+                    label_size = 36,
                     hjust = 0,
-                    ncol = 1, nrow = 2)
+                    ncol = 1, nrow = 2) +
+  theme(panel.background = 
+          element_rect(fill = "white",
+                       color = "white"))
 
 bias_figure
 

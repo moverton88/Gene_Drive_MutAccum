@@ -1,9 +1,10 @@
 # We have a set of LOH events and a false homozygous rate, and so we expect
 # some LOH events to be false positives, but we do not know which ones.
 # In order to perform position-specific analyses without knowing which
-# (singleton) LOH events to exlude, we will calculate an LOH/breakpoint
-# rate distribution by simulating a random draw of singleton LOH events
+# (single/doubleton) LOH events to exclude, we will calculate an LOH/breakpoint
+# rate distribution by simulating a random draw of single/doubleton LOH events
 # to exclude for each clone given the number of expected false LOH events
+
 all_GT_bounds_merge 
 all_LOHbounds_merge
 
@@ -55,7 +56,7 @@ marker_nSingle_lm <- lm(n_singles ~ n_markers, data = marker_stats_xID)
 summary(marker_nSingle_lm)
 
 marker_stats_xID %>%
-  ggplot() + geom_jitter(aes(x = log10(n_markers), y = n_singles), height = 0.3, width = 0)
+  ggplot() + geom_jitter(aes(x = n_markers, y = n_singles), height = 0.3, width = 0)
   
 marker_stats_xID %>%
   ggplot() + geom_jitter(aes(x = n_singles, y = n_markers_conv), height = 0, width = 0.3)
