@@ -9,7 +9,7 @@ CRISPR-Cas9 gene drives (CCGDs) are poised to expand our ability to control wild
 
 **[Experimental Design](https://github.com/moverton88/Gene_Drive_MutAccum/blob/master/Experimental_Design.md)**
 
-[ED2](https://github.com/moverton88/Gene_Drive_MutAccum/Experimental_Design.md)
+**[ED2](https://github.com/moverton88/Gene_Drive_MutAccum/Experimental_Design.md)**
 
 **[Code](https://github.com/moverton88/Gene_Drive_MutAccum/)**
 
