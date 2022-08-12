@@ -3,3 +3,11 @@ title: Gene Drive Mutation Accumulation Project
 author: Michael S. Overton
 # author: Sean E. Guy
 # author: Sergey Kryazhimskiy
+plugins:
+  - jekyll-relative-links
+relative_links:
+  enabled: true
+  collections: true
+include:
+  - README.md
+  - Experimental_Design.md
