@@ -1,7 +1,9 @@
 # Gene Drive Mutation Accumulation Project
 *Michael Overton*
 <br>
-Kryazhimskiy Lab UCSD
+**Kryazhimskiy Lab**
+<br>
+UCSD
 
 <br>
 
