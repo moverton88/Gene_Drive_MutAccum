@@ -1,5 +1,5 @@
 
-# Gene Drive Mutation Accumulation Experiment
+# Gene Drive Mutation Accumulation Project
 **Michael Overton**
 Kryazhimskiy Lab UCSD
    
