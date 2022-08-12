@@ -1,6 +1,6 @@
-# Gene Drive Mutation Accumulation Project
-**Michael Overton**
-Kryazhimskiy Lab UCSD
+---
+title: Experimental Design
+---
 
 # Mutation Accumulation
 
