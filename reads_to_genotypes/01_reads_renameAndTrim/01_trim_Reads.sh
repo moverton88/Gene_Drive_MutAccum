@@ -1,24 +1,19 @@
 #!/bin/bash
 #PBS -A mioverto
-#PBS -l nodes=1,walltime=3:00:00
+#PBS -l nodes=1
+#walltime=3:00:00
 
 
 # Switching to java 1.8
 PATH=/usr/lib/jvm/java-1.8.0-openjdk-1.8.0.252.b09-2.el7_8.x86_64/bin:$PATH
-
-# R1COMP=$FQDIR/F_A01_1_R1.fastq.gz
-# R2COMP=$FQDIR/F_A01_1_R2.fastq.gz
 
 # Record inputs to log
 echo fastq inputs:; echo $R1COMP; echo $R2COMP
 echo Illumina adapter: $ADAPTER
 echo Trimmomatic location: $TRIMMO
 
-# R1COMP=$readsRawDir/F_A00_1_R1.fastq
-
 if [[ ${R1COMP} =~ .*gz.* ]] 
 then
-
    echo "${R1COMP} is compressed, gunzipping."
    gunzip ${R1COMP}
    R1FILE=${R1COMP/.gz/}
@@ -50,8 +45,6 @@ trimR2U=${tmpR1/R1.fastq/R2U.trim.fastq}
 # Send Trimmomatic's logs to same folder; changing file ext later
 tmpLog=${logDir}/$(basename ${fnmR1})
 trimLog=${tmpLog/R1.fastq/trimlog.txt}
-
-
 
 java -jar ${TRIMMO} PE \
    -trimlog ${trimLog} \

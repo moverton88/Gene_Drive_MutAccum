@@ -30,7 +30,7 @@ for(a in 1:length(alleles_BY_raw)) {
 }
 
 indels_BY_valid <- indels_BY[!repeats_BY, ]
-rm(indels_BY)
+# rm(indels_BY)
 
 # valid_new_indels_BY_POSi <- indels_BY_valid[!repeats_BY, ] %>% filter(Rep == "00", GT == "0/0") %>% distinct(POSi) %>% pull(POSi)
 # indels_BY_valid %>% filter(POSi %in% valid_new_indels_BY_POSi, Rep != "00", GT != "0/0") %>% nrow()
@@ -45,7 +45,7 @@ indels_RM <- HC_multiVcfParse_allVar(RM_indel_file, all_Alts = T) %>%
 indels_RM_lift <- indels_RM %>% 
   RMxBY_liftover(.,  chain_df = BYtoRMchainDf, lift_from = "RM", lift_to = "BY")
 
-rm(indels_RM)
+# rm(indels_RM)
 
 
 i_RM_rpt <- rep(F, nrow(indels_RM_lift))
@@ -68,7 +68,7 @@ for(a in 1:length(alleles_RM_raw)) {
 }
 
 indels_RM_valid <- indels_RM_lift[!repeats_RM, ]
-rm(indels_RM_lift)
+# rm(indels_RM_lift)
 
 # Merge indel callsets by ID and position
 ###############################################################################
@@ -89,10 +89,14 @@ indels_merge <- indels_merge %>%
   filter(!POSi %in% RMxBY_comp_vcf$POSi) %>% 
   filter(!POSi %in% RMxBY_indels_POSi)
 
-# Remove sites where on of the calls is missing
+# Remove sites where one of the calls is missing
 indels_merge_valid <- indels_merge %>%
   filter(!is.na(GT_BYcall), GT_BYcall != "./.",
          !is.na(GT_RMcall), GT_RMcall != "./.")
+
+# remove clones with poor sequencing
+indels_merge_valid <- indels_merge_valid %>% 
+  filter(!(ID %in% c(contaminated, bad_seq, whGnm_aneu_ID)))
 
 # Get allele columns for each unique position
 indels_merge_alleles <- indels_merge_valid %>% 
@@ -155,19 +159,180 @@ indels_merge_same_n <- match_GT_alleles(match_df = match_i_df, indels_df = indel
 indels_merge_same_n_final <- indels_merge_same_n %>% 
   filter(!(A_1_final == -1 | A_2_final == -1)) 
 
+# Need a depth filter similar to that for LOH and SNM calls. However,
+# reconciling indel genotypes between references, especially for
+# sites with more than two alleles is not straightforward. Therefore
+# we obtain biallelic "Ref" and Alt depths for multiallelic sites
+# according to genotypes
+Ref_DP_BY_col <- grep("Ref_DP_BYcall", colnames(indels_merge_same_n_final))
+indels_merge_same_n_final$.Ref_DP_BYcall <- 0
+indels_merge_same_n_final$.Alt_DP_BYcall <- 0
+indels_merge_same_n_final$.Ref_DP_RMcall <- 0
+indels_merge_same_n_final$.Alt_DP_RMcall <- 0
+# col_list <- list(0, 1, 2, 3, 4, 5, 6)
+# lapply(col_list, function(x) indels_merge_same_n_final$.Ref_DP_BYcall[indels_merge_same_n_final$A_1_BYcall == x] <-
+#          indels_merge_same_n_final[indels_merge_same_n_final$A_1_BYcall == x, Ref_DP_BY_col + x])
+
+###############################################################################
+# Conveluted way to get biallelic depths from multiallelic depths
+# Depends on the 
+# Genotypes starting with 0 get .Ref_DP from Ref_DP, starting with 1
+# get .Ref_DP from Alt1_DP, ect
+indels_merge_same_n_final$.Ref_DP_BYcall[indels_merge_same_n_final$A_1_BYcall == 0] <-
+  indels_merge_same_n_final$Ref_DP_BYcall[indels_merge_same_n_final$A_1_BYcall == 0]
+indels_merge_same_n_final$.Ref_DP_BYcall[indels_merge_same_n_final$A_1_BYcall == 1] <-
+  indels_merge_same_n_final$Alt1_DP_BYcall[indels_merge_same_n_final$A_1_BYcall == 1]
+indels_merge_same_n_final$.Ref_DP_BYcall[indels_merge_same_n_final$A_1_BYcall == 2] <-
+  indels_merge_same_n_final$Alt2_DP_BYcall[indels_merge_same_n_final$A_1_BYcall == 2]
+indels_merge_same_n_final$.Ref_DP_BYcall[indels_merge_same_n_final$A_1_BYcall == 3] <-
+  indels_merge_same_n_final$Alt3_DP_BYcall[indels_merge_same_n_final$A_1_BYcall == 3]
+indels_merge_same_n_final$.Ref_DP_BYcall[indels_merge_same_n_final$A_1_BYcall == 4] <-
+  indels_merge_same_n_final$Alt4_DP_BYcall[indels_merge_same_n_final$A_1_BYcall == 4]
+indels_merge_same_n_final$.Ref_DP_BYcall[indels_merge_same_n_final$A_1_BYcall == 5] <-
+  indels_merge_same_n_final$Alt5_DP_BYcall[indels_merge_same_n_final$A_1_BYcall == 5]
+indels_merge_same_n_final$.Ref_DP_BYcall[indels_merge_same_n_final$A_1_BYcall == 6] <-
+  indels_merge_same_n_final$Alt6_DP_BYcall[indels_merge_same_n_final$A_1_BYcall == 6]
+
+indels_merge_same_n_final$.Alt_DP_BYcall[indels_merge_same_n_final$A_2_BYcall == 0] <-0
+
+indels_merge_same_n_final$.Alt_DP_BYcall[indels_merge_same_n_final$A_2_BYcall == 1] <-
+  indels_merge_same_n_final$Alt1_DP_BYcall[indels_merge_same_n_final$A_2_BYcall == 1]
+indels_merge_same_n_final$.Alt_DP_BYcall[indels_merge_same_n_final$A_2_BYcall == 2] <-
+  indels_merge_same_n_final$Alt2_DP_BYcall[indels_merge_same_n_final$A_2_BYcall == 2]
+indels_merge_same_n_final$.Alt_DP_BYcall[indels_merge_same_n_final$A_2_BYcall == 3] <-
+  indels_merge_same_n_final$Alt3_DP_BYcall[indels_merge_same_n_final$A_2_BYcall == 3]
+indels_merge_same_n_final$.Alt_DP_BYcall[indels_merge_same_n_final$A_2_BYcall == 4] <-
+  indels_merge_same_n_final$Alt4_DP_BYcall[indels_merge_same_n_final$A_2_BYcall == 4]
+indels_merge_same_n_final$.Alt_DP_BYcall[indels_merge_same_n_final$A_2_BYcall == 5] <-
+  indels_merge_same_n_final$Alt5_DP_BYcall[indels_merge_same_n_final$A_2_BYcall == 5]
+indels_merge_same_n_final$.Alt_DP_BYcall[indels_merge_same_n_final$A_2_BYcall == 6] <-
+  indels_merge_same_n_final$Alt6_DP_BYcall[indels_merge_same_n_final$A_2_BYcall == 6]
+
+# Non reference homozygous calls will have pulled into .Ref_DP and .Alt_DP,
+# need to remove from .Ref_DP
+i_hom_alt <- indels_merge_same_n_final$A_1_BYcall == indels_merge_same_n_final$A_2_BYcall & 
+  indels_merge_same_n_final$A_2_BYcall != 0
+indels_merge_same_n_final$.Ref_DP_BYcall[i_hom_alt] <- 0
+
+indels_merge_same_n_final$.Ref_DP_RMcall[indels_merge_same_n_final$A_1_final == 0] <-
+  indels_merge_same_n_final$Ref_DP_RMcall[indels_merge_same_n_final$A_1_final == 0]
+indels_merge_same_n_final$.Ref_DP_RMcall[indels_merge_same_n_final$A_1_final == 1] <-
+  indels_merge_same_n_final$Alt1_DP_RMcall[indels_merge_same_n_final$A_1_final == 1]
+indels_merge_same_n_final$.Ref_DP_RMcall[indels_merge_same_n_final$A_1_final == 2] <-
+  indels_merge_same_n_final$Alt2_DP_RMcall[indels_merge_same_n_final$A_1_final == 2]
+indels_merge_same_n_final$.Ref_DP_RMcall[indels_merge_same_n_final$A_1_final == 3] <-
+  indels_merge_same_n_final$Alt3_DP_RMcall[indels_merge_same_n_final$A_1_final == 3]
+indels_merge_same_n_final$.Ref_DP_RMcall[indels_merge_same_n_final$A_1_final == 4] <-
+  indels_merge_same_n_final$Alt4_DP_RMcall[indels_merge_same_n_final$A_1_final == 4]
+indels_merge_same_n_final$.Ref_DP_RMcall[indels_merge_same_n_final$A_1_final == 5] <-
+  indels_merge_same_n_final$Alt5_DP_RMcall[indels_merge_same_n_final$A_1_final == 5]
+indels_merge_same_n_final$.Ref_DP_RMcall[indels_merge_same_n_final$A_1_final == 6] <-
+  indels_merge_same_n_final$Alt6_DP_RMcall[indels_merge_same_n_final$A_1_final == 6]
+
+indels_merge_same_n_final$.Alt_DP_RMcall[indels_merge_same_n_final$A_2_final == 0] <-0
+
+indels_merge_same_n_final$.Alt_DP_RMcall[indels_merge_same_n_final$A_2_final == 1] <-
+  indels_merge_same_n_final$Alt1_DP_RMcall[indels_merge_same_n_final$A_2_final == 1]
+indels_merge_same_n_final$.Alt_DP_RMcall[indels_merge_same_n_final$A_2_final == 2] <-
+  indels_merge_same_n_final$Alt2_DP_RMcall[indels_merge_same_n_final$A_2_final == 2]
+indels_merge_same_n_final$.Alt_DP_RMcall[indels_merge_same_n_final$A_2_final == 3] <-
+  indels_merge_same_n_final$Alt3_DP_RMcall[indels_merge_same_n_final$A_2_final == 3]
+indels_merge_same_n_final$.Alt_DP_RMcall[indels_merge_same_n_final$A_2_final == 4] <-
+  indels_merge_same_n_final$Alt4_DP_RMcall[indels_merge_same_n_final$A_2_final == 4]
+indels_merge_same_n_final$.Alt_DP_RMcall[indels_merge_same_n_final$A_2_final == 5] <-
+  indels_merge_same_n_final$Alt5_DP_RMcall[indels_merge_same_n_final$A_2_final == 5]
+indels_merge_same_n_final$.Alt_DP_RMcall[indels_merge_same_n_final$A_2_final == 6] <-
+  indels_merge_same_n_final$Alt6_DP_RMcall[indels_merge_same_n_final$A_2_final == 6]
+
+i_hom_alt <- indels_merge_same_n_final$A_1_final == indels_merge_same_n_final$A_2_final & 
+  indels_merge_same_n_final$A_2_final != 0
+
+indels_merge_same_n_final$.Ref_DP_RMcall[i_hom_alt] <- 0
+###############################################################################
+
 # Get final RM genotypes from matched GT alleles
 indels_merge_final <- indels_merge_same_n_final %>% 
   mutate(GT_RMcall = paste0(A_1_final, "/", A_2_final)) %>% 
-  select(CHROM:ID, GT_BYcall:GQ_BYcall, GT_RMcall, GQ_RMcall)
+  select(CHROM:ID, GT_BYcall:GQ_BYcall, GT_RMcall, GQ_RMcall, .Ref_DP_BYcall:.Alt_DP_RMcall)
 
-# Reconcile GTs based on GQ, as is done in the SNP analysis
+colnames(indels_merge_final) <- gsub(".", "", colnames(indels_merge_final), fixed = T)
+
+# indels_merge_final$GT_RMcall <- gsub("1/0", "0/1", indels_merge_final$GT_RMcall)
+# indels_merge_final$GT_RMcall <- gsub("2/0", "0/2", indels_merge_final$GT_RMcall)
+
+indels_merge_final$GT_RMcall[indels_merge_final$GT_BYcall == "0/0" & 
+                               indels_merge_final$Alt_DP_RMcall == 0] <- "0/0"
+
+# Reconcile GTs based on GQ, as is done in the SNP analyses
 indels_merge_finalGT <- GenotypeFromGQ(indels_merge_final, naThrsh = 100, 
-                                       include_DP = F, check_alleles = F) %>%
-  filter(finalGT != "./.") %>% mutate(GT = finalGT, GQ = finalGQ)
+                                       include_DP = T, check_alleles = F) %>%
+  filter(finalGT != "./.") %>% 
+  mutate(GT = finalGT, GQ = finalGQ) %>% select(!c(finalGT, finalGQ))
+
+allele_split <- colsplit(indels_merge_finalGT$GT, "/", names = c("A_1", "A_2"))
+allele_split$A_1 <- as.numeric(allele_split$A_1)
+allele_split$A_2 <- as.numeric(allele_split$A_2)
+indels_merge_finalGT <- cbind(indels_merge_finalGT, allele_split)
+indels_merge_finalGT <- indels_merge_finalGT %>% 
+  filter(!(A_1 != A_2 & (Ref_DP_final < 4 | Alt_DP_final < 4)),
+         !(A_1 == A_2 & A_1 != 0 & Alt_DP_final < 6),
+         !(A_1 == 0 & A_2 == 0 & Ref_DP_final < 6))
+
+indels_merge_finalGT <- indels_merge_finalGT %>% 
+  mutate(Sum_DP_final = Ref_DP_final + Alt_DP_final,
+         f_Alt = Alt_DP_final/(Ref_DP_final + Alt_DP_final))
+indels_merge_finalGT$Tx_ID <- Recode_Tx_ID(indels_merge_finalGT$Tx)
+
+indels_merge_finalGT$Cut <- indels_merge_finalGT %>% 
+  MarkDubiousHets(bin_size = 0.3)
+
+indels_merge_finalGT %>% 
+  # filter(!GT == "0/1") %>%
+  # filter(!GT %in% c("1/1", "0/0")) %>%
+  ggplot(aes(x = Ref_DP_final, y = Alt_DP_final)) + 
+  geom_abline() +
+  geom_jitter() +
+  facet_wrap(~GT, scales = "free")
+  scale_color_manual(values = allelePal)
+
+
+indels_merge_finalGT %>% 
+  filter(A_1 != A_2) %>% 
+  ggplot() + geom_histogram(aes(x = log(Sum_DP_final), fill = GT), binwidth = 0.3)
+
+indels_merge_finalGT %>% 
+  filter(A_1 != A_2) %>% 
+  # filter(Line %in% c("F_B", "F_E")) %>%
+  # filter(!Cut) %>%
+  ggplot() + geom_histogram(aes(x = f_Alt, fill = Cut), binwidth = 0.025) +
+  xlim(0, 1) +
+  facet_grid(Line %in% c("F_B", "F_E")~Sum_DP_final > 25, scales = "free_y")
+
+indels_merge_finalGT %>% filter(Cut) %>% count(ID) %>% ggplot() + geom_histogram(aes(x = n))
+
+indels_merge_finalGT %>% 
+  filter(!(GT_BYcall %in% c("0/0", "1/1", "2/2", "3/3", "4/4", "5/5", "6/6"))) %>% 
+  ggplot() + geom_histogram(aes(x = Alt_DP_BYcall/(Alt_DP_BYcall+Ref_DP_BYcall), fill = GT_BYcall), binwidth = 0.025)
+
+indels_merge_finalGT %>% 
+  filter(!(GT_RMcall %in% c("0/0", "1/1", "2/2", "3/3", "4/4", "5/5", "6/6"))) %>% 
+  ggplot() + geom_histogram(aes(x = Alt_DP_RMcall/(Alt_DP_RMcall+Ref_DP_RMcall), fill = GT_RMcall), binwidth = 0.025)
+
+indels_merge_finalGT %>% 
+  filter(A_1 != A_2) %>% 
+  ggplot() + geom_histogram(aes(x = f_Alt, fill = GT), binwidth = 0.025) +
+  facet_grid(Sum_DP_final > 50~.)
+
+indel_error_rates <- indels_merge_finalGT %>% 
+  filter(!Line %in% noAncestor, !Cut) %>%
+  errorFromPhylo(flsHom_support = 4, flsHet_support = 6, output_POSi = F)
+
+indel_F_Hom_rate <- sum(indel_error_rates$n_F_Hom)/sum(indel_error_rates$n_Het_q)
+indel_F_Het_rate <- sum(indel_error_rates$n_F_Het)/sum(indel_error_rates$n_Hom_q)
 
 # For each position, count number of distinct GT in the founders
 indel_anc_GTs <- indels_merge_finalGT %>% 
-  filter(Rep == "00") %>% count(POSi, GT) %>% 
+  filter(Rep == "00", !Cut) %>% count(POSi, GT) %>% 
   pivot_wider(names_from = GT, values_from = n, names_prefix = "GT_")
 indel_anc_GTs[is.na(indel_anc_GTs)] <- 0
 
@@ -180,7 +345,7 @@ anc_noIndel_POSi <- indel_anc_GTs$POSi[i_anc_noIndel]
 # For each position without an indel in the founders, count the number
 # of distinct GT in the end-point clones
 indel_evo_GTs <- indels_merge_finalGT %>% 
-  filter(Rep != "00", POSi %in% anc_noIndel_POSi) %>% count(POSi, GT) %>% 
+  filter(Rep != "00", !Cut, POSi %in% anc_noIndel_POSi) %>% count(POSi, GT) %>% 
   pivot_wider(names_from = GT, values_from = n, names_prefix = "GT_")
 
 # Find sites for which each non-Ref GT is represented by only
@@ -191,7 +356,7 @@ evo_Indel_POSi <- indel_evo_GTs$POSi[i_evo_Indel]
 
 # Filter indel set to valid sites as determined above
 final_indel_set <- indels_merge_finalGT %>% 
-  filter(POSi %in% evo_Indel_POSi, Rep != "00", GT != "0/0")
+  filter(POSi %in% evo_Indel_POSi, !Cut, Rep != "00", GT != "0/0")
 
 # Some indels are complex and represented multiple times, 
 # merge indel events (filter out the redundants) within 100bp
@@ -207,22 +372,144 @@ final_indel_set_merge <- final_indel_set %>% filter(diff > 100 & lead_diff > 100
 
 # For indel counts, need to include clones with 0 indels
 # Get IDs for all end-point clones from indels and SNPs
-indel_IDs <- indels_merge %>% filter(Rep != "00") %>% distinct(ID) %>% pull(ID)
+indel_IDs <- indels_merge_valid %>% filter(Rep != "00") %>% distinct(ID) %>% pull(ID)
+indel_IDs_2 <- final_indel_set_merge %>% filter(Rep != "00") %>% distinct(ID) %>% pull(ID)
 union_evo_IDs <- union(indel_IDs, evo_IDs)
+union_evo_IDs <- union(union_evo_IDs, indel_IDs_2)
 final_indel_set_merge$ID <- factor(final_indel_set_merge$ID, levels = union_evo_IDs)
 
-Indel_final_counts <- final_indel_set %>% count(ID) 
-Indel_final_counts <- indels_merge_finalGT %>% 
-  filter(POSi %in% anc_noIndel_POSi, Rep != "00", GT != "0/0") %>% count(ID) 
+Indel_final_counts <- final_indel_set_merge %>% count(ID)
 
 evo_zeros <- data.frame(ID = union_evo_IDs[!union_evo_IDs %in% Indel_final_counts$ID], n = 0)
 
 Indel_final_counts <- rbind(evo_zeros, Indel_final_counts) %>% arrange(ID)
 
 Indel_final_counts <- Indel_final_counts %>% CategoriesFromID()
+Indel_final_counts$Tx_ID <- Recode_Tx_ID(Indel_final_counts$Tx)
 
-Indel_final_counts %>% ggplot() + geom_histogram(aes(x = n), binwidth = 1) + facet_grid(Tx~.)
-Indel_final_counts %>% group_by(Tx) %>% summarize(m = mean(n), s = sd(n))
+Indel_final_counts %>% 
+  ggplot() + geom_histogram(aes(x = n), binwidth = 1) + facet_grid(Tx~.)
+Indel_final_counts %>% group_by(Tx_ID) %>% summarize(m = mean(n), s = sd(n))
+
+Indel_final_counts_table <- Indel_final_counts %>% 
+  group_by(Tx_ID) %>% count(n, name = "n_muts") %>% 
+  arrange(Tx_ID)
+
+Indel_final_counts_table <- fill_zeros(Indel_final_counts_table, 
+                                       group_col = "Tx_ID", 
+                                       factor_col = "n", 
+                                       fill_col = "n_muts")
+
+Indel_final_counts_table <- Indel_final_counts_table %>% group_by(Tx_ID) %>%
+  mutate(density = n_muts/sum(n_muts)) %>% ungroup()
+
+tx_indelRate <- Indel_final_counts %>% 
+  group_by(Tx_ID) %>% 
+  summarize(n_clones = n(), 
+            total_indels = sum(n),
+            indel_rate = sum(n)/ n() / n_gens / n_sites)
+
+tx_indelRate_CI <- Indel_final_counts %>% 
+  group_by(Tx_ID) %>%
+  group_modify(~ data.frame(boot.ci(boot(.x$n,
+                                         statistic = mean.fun, R = 1000), 
+                                    type = "perc")$percent[4:5] %>% t())) %>%
+  mutate(CI_95lo = X1 / n_gens / n_sites, CI_95up = X2 / n_gens / n_sites) %>%
+  select(CI_95lo, CI_95up)
+
+tx_indelRate$indel_CIlo <- tx_indelRate_CI$CI_95lo
+tx_indelRate$indel_CIup <- tx_indelRate_CI$CI_95up
+
+
+indel_WT_Cas9_perm <- perm_test(Indel_final_counts, 
+                              cat_var = "Tx_ID", cat_names = c("W", "C"), 
+                              response_var = "n", alpha = 0.05)
+
+indel_WT_Drive_perm <- perm_test(Indel_final_counts, 
+                              cat_var = "Tx_ID", cat_names = c("W", "D"), 
+                              response_var = "n", alpha = 0.05)
+
+# Plot center-out histogram of point mutation count !!!!!!!####################
+n_Tx <- Indel_final_counts_table %>% 
+  group_by(Tx_ID) %>% summarize(n_clones = sum(n_muts))
+n_muts_lim <- max(Indel_final_counts_table$n_muts) + 1
+y_gap <- 0.05
+
+Indel_means <- Indel_final_counts %>% group_by(Tx_ID) %>% summarize(m = mean(n), s = sd(n))
+
+Indel_final_counts_table$x_left <- -Indel_final_counts_table$n_muts/2
+Indel_final_counts_table$x_right <- Indel_final_counts_table$n_muts/2
+Indel_final_counts_table$y_bot <- Indel_final_counts_table$n - 1/2 + y_gap
+Indel_final_counts_table$y_top <- Indel_final_counts_table$n + 1/2 - y_gap
+
+Indel_final_counts_table$text_pos <- ifelse(Indel_final_counts_table$n_muts == 0 |
+                                             Indel_final_counts_table$n_muts > 2, 
+                                           0, Indel_final_counts_table$x_right + 2)
+
+Indel_final_counts_table$text_color <- ifelse(Indel_final_counts_table$n_muts > 2, 
+                                             "white",
+                                             txPal[as.numeric(Indel_final_counts_table$Tx_ID)])
+
+text_backing <- Indel_final_counts_table %>% 
+  filter(text_color != "white") %>% select(Tx_ID, n, text_pos)
+text_backing$x_min <- text_backing$text_pos - 1.75
+text_backing$x_max <- text_backing$text_pos + 1.75
+text_backing$y_min <- text_backing$n - 0.3
+text_backing$y_max <- text_backing$n + 0.3
+
+Indel_final_counts_table <- Indel_final_counts_table %>% arrange(Tx_ID, n)
+
+Indel_n_rect_plot <- Indel_final_counts_table %>%
+  ggplot() + 
+  # geom_hline(data = SNMs_final_counts_stats, aes(yintercept = mean_n, color = Tx_name), size = 0.75) +
+  geom_rect(data = text_backing, aes(xmin = x_min, xmax = x_max, ymin = y_min, ymax = y_max), fill = "white") +
+  geom_rect(aes(xmin = x_left, xmax = x_right, ymin = y_bot, ymax = y_top, fill = Tx_ID)) +
+  geom_crossbar(data = Indel_means, aes(x = 0, y = m, ymin = m, ymax = m), size = 0.1, width = n_muts_lim) +
+  geom_text(aes(x = text_pos, y = n, 
+                label = n_muts), color = Indel_final_counts_table$text_color, size = 7) +
+  scale_x_continuous(breaks = 0, label = NULL, limits = c(-n_muts_lim/2 - 2, n_muts_lim/2 + 2),
+                     name = "Number of Clones") +
+  scale_y_continuous(breaks = seq.int(0, max(Indel_final_counts_table$n, 1)), 
+                     name = "Number of Indels") +
+  scale_fill_manual(values = txPal) + 
+  scale_color_manual(values = txPal) +
+  # coord_flip() +
+  theme(legend.position = "none",
+        panel.grid.minor.y = element_blank(),
+        plot.margin = unit(c(t = 5, r = 5, b = 5, l = 8), "mm"),
+        # axis.title.x = element_blank(),
+        # axis.title.y = element_text(vjust = 3),
+        strip.text = element_blank(),
+        # strip.text.x = element_blank(),
+        text = element_text(size = 26)) +
+  facet_grid(.~Tx_ID)
+
+Indel_n_rect_plot
+
+# ggsave(file.path(outIntDir, "SNMcount_freq_2022_02.png"), 
+#        plot = SNM_n_rect_plot,
+#        device = "png",
+#        width = 16, height = 9, 
+#        units = "in",
+#        dpi = 600)
+
+figure <- plot_grid(SNMcount_dotplot_mean, Indel_n_rect_plot,
+                    labels = c("A", "B"),
+                    align = "v",
+                    scale = 0.95,
+                    label_size = 28,
+                    hjust = 0,
+                    ncol = 1, nrow = 2) +
+  theme(plot.background = element_rect(fill = "white", colour = "white"))
+
+figure
+
+ggsave(file.path(outIntDir, "SNM_Indel_combo_2022_05.png"), 
+       plot = figure,
+       device = "png",
+       width = 11, height = 11, 
+       units = "in",
+       dpi = 600)
 
 
 

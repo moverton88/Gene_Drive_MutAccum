@@ -19,19 +19,21 @@ all_LOHbounds_merge_NS %>%
   facet_wrap(~GT, ncol = 1, scales = "free_y") +
   xlab("Log(# of markers supporting tract)")
 
-all_LOHbounds_merge %>% 
-  filter(length == 1, GT != "0/1", !is_error) %>% 
+all_GT_bounds_merge %>% 
+  filter(length == 1, GT != "0/1") %>% 
   count(ID, GT) %>% 
   # arrange(desc(n))
   ggplot() + geom_histogram(aes(x = n, fill = GT), binwidth = 1)
   
 fract_BY_in <- all_LOHcounts_merge_NS
 
-fract_BY_in <- all_LOHbounds_merge %>% 
+fract_BY_in <- all_GT_bounds_merge %>% 
+  # filter(length == 1) %>%
+  filter(GT != "0/1") %>% 
   group_by(Tx_name, ID) %>%
-  filter(length == 1) %>% summarize(n_BYtot = sum(GT == "0/0"),
-                                    n_RMtot = sum(GT == "1/1"),
-                                    n_LOHtot = n())
+  summarize(n_BYtot = sum(GT == "0/0"),
+            n_RMtot = sum(GT == "1/1"),
+            n_LOHtot = n())
 
 fract_BY_in$Tx_ID <- Recode_Tx_ID(fract_BY_in$Tx)
 
@@ -46,15 +48,18 @@ fract_BY_in$n_LOHtot <- fract_BY_in$n_BYtot + fract_BY_in$n_RMtot
 fract_BY_in$fractLOH_BY <- fract_BY_in$n_BYtot/fract_BY_in$n_LOHtot
 
 mean_fract_BY <- fract_BY_in %>% 
-  # group_by(Tx_ID) %>% 
-  summarise(grand_mean_f_BY = sum(n_BYtot)/sum(n_LOHtot),
+  ungroup() %>%
+  group_by(Tx_ID) %>%
+  summarise(n_LOH = sum(n_LOH),
+            n_LOH_BY = sum(n_BYtot),
+            grand_mean_f_BY = sum(n_BYtot)/sum(n_LOHtot),
             mean_f_BY = mean(n_BYtot/n_LOHtot),
             f_BY_CIlo = mean(n_BYtot/n_LOHtot) - se(n_BYtot/n_LOHtot) * 1.96,
             f_BY_CIup = mean(n_BYtot/n_LOHtot) + se(n_BYtot/n_LOHtot) * 1.96)
 
 fract_BY_in %>% ggplot() + 
   geom_histogram(aes(x = fractLOH_BY), binwidth = 0.05) + 
-  facet_grid(Tx_name~.)
+  facet_grid(Tx_ID~.)
 
 overall_mean <- sum(fract_BY_in$n_BYtot)/sum(fract_BY_in$n_LOHtot)
 overall_sd <- sd(fract_BY_in$n_BYtot/fract_BY_in$n_LOHtot, na.rm = T)
@@ -62,18 +67,22 @@ overall_sd <- sd(fract_BY_in$n_BYtot/fract_BY_in$n_LOHtot, na.rm = T)
 LOH_bias_binom <- binom.test(sum(fract_BY_in$n_BYtot), sum(fract_BY_in$n_LOHtot), p = 0.5)
 
 fract_conv_BY <- fract_BY_in %>% 
-  dplyr::group_by(Line) %>% 
-  dplyr::summarise(n_BY = sum(n_BYtot),
+  # group_by(Line) %>% 
+  group_by(Tx_ID) %>% 
+  summarise(n_BY = sum(n_BYtot),
                    n_RM = sum(n_RMtot),
                    n_Tot = sum(n_BYtot) + sum(n_RMtot))
 
-fract_conv_BY %>% ggplot() + geom_point(aes(x = n_BY, y = n_RM)) + geom_abline() + ylim(0, NA) + xlim(0, NA)
+fract_conv_BY %>% ggplot() + geom_point(aes(x = n_BY, y = n_RM)) + 
+  geom_abline() + ylim(0, NA) + xlim(0, NA)
 
 binom_df <- data.frame(NULL)
-for(l in levels(fract_conv_BY$Line)) {
+# for(l in levels(fract_conv_BY$Line)) {
+for(l in Tx_ID_levels) {
   # l = "N_A"
-  test_row <- fract_conv_BY %>% filter(Line == l)
-  binom_result <- binom.test(test_row$n_BY, test_row$n_Tot, alternative = "two.sided")
+  # test_row <- fract_conv_BY %>% filter(Line == l)
+  test_row <- fract_conv_BY %>% filter(Tx_ID == l)
+  binom_result <- binom.test(test_row$n_BY, test_row$n_Tot, p = 0.5, alternative = "two.sided")
   binom_p <- binom_result$p.value
   binom_interval <- binom_result$conf.int
   binom_result <- data.frame(Line = l, CI_low = binom_result$conf.int[1],
@@ -88,15 +97,6 @@ fract_conv_BY$fract_BY <- fract_conv_BY$n_BY/fract_conv_BY$n_Tot
 mean(fract_conv_BY$fract_BY)
 sd(fract_conv_BY$fract_BY)
 
-error_ID_POSi <- all_LOHbounds_merge_EC_50 %>% filter(is_error) %>% 
-  paste0(.$ID, "_", .$start_POSi)
-all_LOHbounds_50$ID_POSi <- paste0(all_LOHbounds_50$ID, "_", all_LOHbounds_50$POSi)
-SNP_bias <- all_LOHbounds_merge_EC_50 %>% filter(GT != "0/1") %>% 
-  group_by(GT) %>% summarise(n_SNP = sum(length))
-SNP_region_bias <- all_LOHbounds_50 %>% filter(GT != "0/1") %>% 
-  group_by(GT) %>% summarize(n_regions = n(), mean_n_SNPs = mean(length))
-SNP_merge_bias <- all_LOHbounds_merge_EC_50 %>% filter(GT != "0/1") %>% 
-  group_by(GT) %>% summarize(n_regions = n(), mean_n_SNPs = mean(length))
 
 binom.test(x = SNP_bias$n_SNP)
 
@@ -166,6 +166,9 @@ hist_convBias <- fract_BY_in %>% ggplot() +
                                      ymin = -Inf, ymax = Inf), fill = "grey70", alpha = 0.3) +
   geom_histogram(aes(x = fractLOH_BY), binwidth = 0.05) +
   geom_vline(data = mean_prop_BY, aes(xintercept = mean_f_BY), color = "grey10") +
+  geom_label(data = n_clones_LOH_xTx,
+             aes(x = 0.98, y = 15, label = Tx_ID),
+             label.size = 0, size = 12) +
   # geom_label(data = mean_prop_BY, aes(x = mean_f_BY, y = 18, label = signif(mean_f_BY, 3)),
   # label.size = 0, hjust = -0.1, size = 8) +
   # geom_density(data = binom_df, aes(x=prop_BY), color = "red") +
@@ -175,11 +178,12 @@ hist_convBias <- fract_BY_in %>% ggplot() +
   # xlim(c(0,1)) +
   facet_grid(Tx_ID~.) +
   theme(text = element_text(size = 28),
+        strip.text.y = element_blank(),
         panel.grid.minor = element_blank())
 
 hist_convBias
 
-ggsave(file.path(outIntDir, "hist_convBias_2022_03.png"), 
+ggsave(file.path(outIntDir, "hist_convBias_2022_04.png"), 
        plot = hist_convBias,
        device = "png",
        width = 10, height = 10, 
@@ -194,7 +198,7 @@ point_convBias <- fract_BY_in %>%
   ylim(c(-1,12)) + xlim(c(-1,12)) +
   theme(panel.background = element_rect(color="grey80"),
         strip.text.x = element_text(size = 12)) +
-  facet_grid(.~Tx_name) #+ ggtitle("Distribution of LOH Conversion Bias")
+  facet_grid(.~Tx_ID) #+ ggtitle("Distribution of LOH Conversion Bias")
 
 point_convBias
 
@@ -212,16 +216,15 @@ density_convBias <- fract_BY_in %>%
   #ylim(c(0,20)) + xlim(c(0,20)) +
   theme(panel.background = element_rect(color="grey80"),
         strip.text.x = element_text(size = 12)) +
-  facet_grid(.~Tx_name) #+ ggtitle("Distribution of LOH Conversion Bias")
+  facet_grid(.~Tx_ID) #+ ggtitle("Distribution of LOH Conversion Bias")
 
 density_convBias
 
 # Calculate the proportion of conversions to BY for each chromosome and each Tx
 
-chrom_nRuns <- all_LOHbounds_merge %>% 
+chrom_nRuns <- all_LOHbounds_merge_NS %>% 
   ungroup() %>% 
-  filter(GT != "0/1", !is_error) %>%
-  group_by(Tx_name, CHROM) %>%
+  group_by(Tx_ID, CHROM) %>%
   count(GT)
 
 chrom_nRuns$GT <- factor(chrom_nRuns$GT, labels = c("Ref_hom", "Alt_hom"))
@@ -235,9 +238,11 @@ bn_t <- function(a, b) {
   binom.test(a, b, p = 0.5, alternative = "two.sided", conf.level = 0.95)$conf_int
 }
 
-binom.test(chrom_nRuns_wide$Ref_hom[1], chrom_nRuns_wide$Tot[1])$conf_int
+binom.test(chrom_nRuns_wide$Ref_hom[1], chrom_nRuns_wide$Tot[1])$conf.int
 
-chrom_nRuns_wide <- chrom_nRuns_wide %>% rowwise(Ref_hom, Tot) %>% mutate(bn_lo = binom.test(Ref_hom, Tot)$conf.int[1],
+chrom_nRuns_wide <- chrom_nRuns_wide %>% 
+  rowwise(Ref_hom, Tot) %>%
+  mutate(bn_lo = binom.test(Ref_hom, Tot)$conf.int[1],
                             bn_hi = binom.test(Ref_hom, Tot)$conf.int[2])
 
 chrom_nRuns_wide$sd <- sqrt(chrom_nRuns_wide$fract_BY*(1-chrom_nRuns_wide$fract_BY)/
@@ -248,15 +253,15 @@ chrom_nRuns_wide$sd_hi <- chrom_nRuns_wide$fract_BY + chrom_nRuns_wide$sd
 plot_bars <- data.frame(from = seq(1.5, 15.5, 2), to = seq(2.5, 16.5, 2))
 
 alleleBias_chrom_point <- ggplot(data = chrom_nRuns_wide, 
-                                 aes(x = as.numeric(CHROM) + (as.numeric(Tx_name) - 2)/4, 
+                                 aes(x = as.numeric(CHROM) + (as.numeric(Tx_ID) - 2)/4, 
                                      y = fract_BY - 0.5)) + 
   annotate(geom = "rect", xmin = plot_bars$from,
            xmax = plot_bars$to, ymin=-Inf, ymax=Inf, alpha=0.2, fill = "grey70") +
   geom_hline(aes(yintercept = 0), size = 0.15, color = "grey50") +
   geom_errorbar(aes(ymin = bn_lo - 0.5, ymax = bn_hi - 0.5), size = 0.3, width = 0.15) +
-  geom_point(aes(color = Tx_name), size = 2.5) + 
-  geom_text(aes(y = -0.47, label = Tot, color = Tx_name), size = 4) +
-  #geom_line(aes(color = Tx_name, group = Tx_name), size = 0.25) + 
+  geom_point(aes(color = Tx_ID), size = 2.5) + 
+  geom_text(aes(y = -0.47, label = Tot, color = Tx_ID), size = 4) +
+  #geom_line(aes(color = Tx_name, group = Tx_ID), size = 0.25) + 
   scale_color_manual(values = c("grey20", "gold3", "purple3")) +
   scale_x_continuous(breaks = 1:16) +
   scale_y_continuous(breaks = c(-0.5, 0, 0.5), labels = c("RM", "0", "BY"), limits = c(-0.5, 0.5)) +
@@ -266,7 +271,7 @@ alleleBias_chrom_point <- ggplot(data = chrom_nRuns_wide,
         axis.ticks.x = element_blank(),
         legend.position = "top") +
   xlab("Chromosome") + ylab("LOH Allele Bias") #+
-# facet_grid(Tx_name~.)
+# facet_grid(Tx_ID~.)
 
 alleleBias_chrom_point
 
@@ -320,17 +325,14 @@ ggsave(file.path(outIntDir, "point_convBias.png"),
 
 # Permutation test for difference in allele bias among Tx ---------
 
-N_H_permVar_list <- all_nGTruns_cln %>% 
-  filter(Rep != "00") %>%
-  perm_test(data=., cat_var ="Tx_name", cat_names = c("Cas9", "WT"), response_var = "Tot_hom", 
-            n_perms = 10000, alpha=0.05, alt_hyp = "two-tailed", test_stat = var)
+N_H_permVar_list <- fract_BY_in %>% 
+  perm_test(df_in = ., cat_var ="Tx_ID", cat_names = c("C", "W"), response_var = "fractLOH_BY", 
+            n_perms = 10000, alpha=0.05, alt_hyp = "two-tailed", test_stat = mean)
 
-N_F_permVar_list <- all_nGTruns_cln %>% 
-  filter(Rep != "00") %>%
-  perm_test(data=., cat_var ="Tx_name", cat_names = c("Drive", "WT"), response_var = "Tot_hom", 
-            n_perms = 10000, alpha=0.05, alt_hyp = "two-tailed", test_stat = var)
+N_F_permVar_list <- fract_BY_in %>% 
+  perm_test(df_in = ., cat_var ="Tx_ID", cat_names = c("W", "D"), response_var = "fractLOH_BY", 
+            n_perms = 10000, alpha=0.05, alt_hyp = "two-tailed", test_stat = mean)
 
-H_F_permVar_list <- all_nGTruns_cln %>% 
-  filter(Rep != "00") %>%
-  perm_test(data=., cat_var ="Tx_name", cat_names = c("Cas9", "Drive"), response_var = "Tot_hom", 
-            n_perms = 10000, alpha=0.05, alt_hyp = "two-tailed", test_stat = var)
+H_F_permVar_list <- fract_BY_in %>% 
+  perm_test(df_in = ., cat_var ="Tx_ID", cat_names = c("C", "D"), response_var = "fractLOH_BY", 
+            n_perms = 10000, alpha=0.05, alt_hyp = "two-tailed", test_stat = mean)

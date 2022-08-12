@@ -5,7 +5,7 @@
 # BY = BY reference
 # BYm = BY masked reference
 # Cas9 = Cas9 gRNA construct
-export alignRef=Cas9_F
+export alignRef=RM
 export callRef=${alignRef}
 
 export alignTag="default"
@@ -25,20 +25,22 @@ if [[ ${callRef} == RM ]] ; then
     echo "alignment reference not found"
 fi
 
+projDir=/oasis/tscc/scratch/mioverto/LOH_methods/Pankajam_etal_2020
+# projDir=/oasis/tscc/scratch/mioverto/geneDrive/dualRef
 if [[ ${alignRef} == BY || ${alignRef} == RM ]] ; then
-        export bamDir=/oasis/tscc/scratch/mioverto/geneDrive/dualRef/${alignRef}_aligned/bam
-        export gVCFdir=/oasis/tscc/scratch/mioverto/geneDrive/dualRef/${alignRef}_aligned/variants/gVCFs/${callRef}_call
-        export lineVCFdir=/oasis/tscc/scratch/mioverto/geneDrive/dualRef/${alignRef}_aligned/variants/gVCFs/lineMulti
-        export finalVCFdir=/oasis/tscc/scratch/mioverto/geneDrive/dualRef/${alignRef}_aligned/variants/allVarVcfs
+        export bamDir=${projDir}/${alignRef}_aligned/bam
+        export gVCFdir=${projDir}/${alignRef}_aligned/variants/gVCFs
+        export lineVCFdir=${projDir}/${alignRef}_aligned/variants/gVCFs/lineMulti
+        export finalVCFdir=${projDir}/${alignRef}_aligned/variants/allVarVcfs
     elif [[ ${alignRef} == Cas9_N ]] ; then
         export bamDir=/oasis/tscc/scratch/mioverto/geneDrive/Cas9/bam
-        export gVCFdir=/oasis/tscc/scratch/mioverto/geneDrive/Cas9/variants/gVCFs/
+        export gVCFdir=/oasis/tscc/scratch/mioverto/geneDrive/Cas9/variants/gVCFs
         export refSeq=/home/mioverto/geneDrive/refseq/Drive/GFP_NrsR_cassette.fna
         export lineVCFdir=/oasis/tscc/scratch/mioverto/geneDrive/Cas9/variants/gVCFs/lineMulti
         export finalVCFdir=/oasis/tscc/scratch/mioverto/geneDrive/Cas9/variants/allVarVcfs
     elif [[ ${alignRef} == Cas9_H ]] ; then
         export bamDir=/oasis/tscc/scratch/mioverto/geneDrive/Cas9/bam
-        export gVCFdir=/oasis/tscc/scratch/mioverto/geneDrive/Cas9/variants/gVCFs/
+        export gVCFdir=/oasis/tscc/scratch/mioverto/geneDrive/Cas9/variants/gVCFs
         export refSeq=/home/mioverto/geneDrive/refseq/Drive/Cas9_GFP_NrsR.fna
         export lineVCFdir=/oasis/tscc/scratch/mioverto/geneDrive/Cas9/variants/gVCFs/lineMulti
         export finalVCFdir=/oasis/tscc/scratch/mioverto/geneDrive/Cas9/variants/allVarVcfs
@@ -54,20 +56,21 @@ fi
 
 
 export script=/home/mioverto/code/variants/02_combineAndCall_gatkGgVCFs.sh
-export logDir=/oasis/tscc/scratch/mioverto/geneDrive/log/callGvcf
+export logDir=/oasis/tscc/scratch/mioverto/LOH_methods/log/
+# export logDir=/oasis/tscc/scratch/mioverto/geneDrive/log/callGvcf
 export DATE=$(date +'%m_%d_%Y')
 
 # Submitting jobs in a loop for files that have not been created yet
 # Wildcard must include only founder "00" ID, as the script bases 
 # lineage groups on this
-lineage=F
+lineage=L
 
-for gVCF in ${gVCFdir}/F_A00*.g.vcf; do
+for gVCF in ${gVCFdir}/*.g.vcf; do
     export index=$(basename "${gVCF}" .g.vcf)
     # export lineage=${index:0:3}
     # export VCFout=${finalVCFdir}/${lineage}_${alignRef}a${callRef}c_${alignTag}_${tag}.vcf
     export VCFout=${finalVCFdir}/${lineage}_${alignRef}_${alignTag}_${tag}.vcf
-    echo Submitting call gVCF $(basename "${VCFout}")
+    echo Submitting combine and call $(basename "${VCFout}")
 # done
     qsub \
         -V \

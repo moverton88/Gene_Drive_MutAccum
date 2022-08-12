@@ -14,11 +14,15 @@ if [ ${lineage} == all ] ; then
     dir ${gVCFdir}/*${alignTag}.g.vcf > ${gVCFlist}
 
     export founderList=${gVCFdir}/${lineage}_founderList.list
-    export founderList=${gVCFdir}/${lineage}_founderList.list
-    for founder in ${gVCFdir}/*00*.g.vcf; do
+    
+    for founder in ${gVCFdir}/Anc*.g.vcf; do
+    # for founder in ${gVCFdir}/*00*.g.vcf; do
         export index=$(basename "${founder}" .g.vcf)
-        export id=${index:0:5}
-        echo $id >> ${founderList}
+        export id=${index%%_*}
+        # export id=${index:0:5}
+        # export id=Anc_RM
+        echo $id
+        # echo $id >> ${founderList}
     done
     else
         export gVCFlist=${gVCFdir}/${lineage}_gVCFlist.list

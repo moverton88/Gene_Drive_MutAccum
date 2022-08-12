@@ -38,8 +38,9 @@ scp ~/SK_Lab/PhD_Projects/geneDrive/code/rename/renameFastqFiles.sh mioverto@tsc
 scp ~/SK_Lab/PhD_Projects/geneDrive/code/rename/masterPlanFile.csv mioverto@tscc-login.sdsc.edu:/home/mioverto/code/rename
 
     ## - Trim reads
-scp ~/SK_Lab/PhD_Projects/geneDrive/code/trim/submitTrimReads.sh mioverto@tscc-login.sdsc.edu:/home/mioverto/code/trim
-scp ~/SK_Lab/PhD_Projects/geneDrive/code/trim/trimReads_V2.sh mioverto@tscc-login.sdsc.edu:/home/mioverto/code/trim
+scp ~/SK_Lab/PhD_Projects/geneDrive/code/reads_to_genotypes/01_reads_renameAndTrim/01_trim_reads.sh \
+ mioverto@tscc-login.sdsc.edu:/home/mioverto/code/trim
+# scp ~/SK_Lab/PhD_Projects/geneDrive/code/trim/trimReads_V2.sh mioverto@tscc-login.sdsc.edu:/home/mioverto/code/trim
 
     ## - Bowtie align and output bam
 # scp ~/SK_Lab/PhD_Projects/geneDrive/code/align/submit_alignToBam_v1.sh mioverto@tscc-login.sdsc.edu:/home/mioverto/code/align

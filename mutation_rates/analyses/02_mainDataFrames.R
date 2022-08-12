@@ -36,31 +36,16 @@ low_depth_ID <- seq_depths_mean %>%
   filter(n_valid/g_length < 0.7) %>%
   distinct(ID) %>% pull(ID)
 
+# low_depth_ID <- c("F_A01", "F_D00", "F_E10", "F_E13", "F_G02",
+#                   "H_A03", "H_A09", "H_E08", "H_E10", "H_F00", "H_H00",
+#                   "N_A01", "N_A06", "N_A07", "N_A08", "N_C03")
+
 # Calculate mean coverage
 mean_cover <- seq_depths_mean %>% 
   filter(f_valid > 0.7) %>% 
   pull(n_valid) %>% mean()
 
-# Create liftover file for RM vcf import
-###############################################################################
-
-BYtoRMchainDf <- chainToDF(chainFile)
-
-# RMxBY variant site positions
-###############################################################################
-
-# Table created by aligning RM and BY references and outputting variant sites
-# using bcftools consensus
-RMxBY_vcf <- RMxBY_vcfParse(RMxBY_file)
-iRMxBY_SNPs <- nchar(RMxBY_vcf$BY) == 1 & nchar(RMxBY_vcf$RM) == 1 
-RMxBY_SNPs_POSi <- RMxBY_vcf$POSi[iRMxBY_SNPs]
-
-iRMxBY_indels <- nchar(RMxBY_vcf$BY) > 1 | nchar(RMxBY_vcf$RM) > 1 
-RMxBY_indels_POSi <- RMxBY_vcf$POSi[iRMxBY_indels]
-
-RMxBY_comp_vcf <- RMxBY_vcfParse(RMxBY_comp_file)
-iRMxBY_comp_SNPs <- nchar(RMxBY_comp_vcf$BY) == 1 & nchar(RMxBY_comp_vcf$RM) == 1 
-RMxBY_comp_SNPs_POSi <- RMxBY_comp_vcf$POSi[iRMxBY_comp_SNPs]
+# mean_cover <- 10446075
 
 # Generate master SNP dataframe from all clone data aligned to each reference
 ###############################################################################
@@ -191,11 +176,10 @@ whGnm_aneu_ID <- c("N_B12")
 SNPs_merge %>% 
   filter(Line %in% c("F_B", "F_E"), GT_RMcall == "0/1") %>% 
   ggplot() + 
-  geom_histogram(aes(x = Ref_DP_RMcall/(Ref_DP_RMcall + Alt_DP_RMcall), 
-                                        fill = POSi %in% clean_markers)) +
+  geom_histogram(aes(x = Ref_DP_RMcall/(Ref_DP_RMcall + Alt_DP_RMcall))) +
   scale_y_log10()
 
-# These founder groups are processed in parallele with the script
+# These founder groups are processed in parallel with the script
 # triploid_mainDataFrames.R
 
 
@@ -210,12 +194,18 @@ noAncestor <- all_lines %>%
   filter(!Line %in% anc_lines) %>% 
   pull(Line) %>% as.character()
 
+# noAncestor <- c("F_D", "H_F", "H_H", "N_F", "N_H")
+
 # Remove clones with confounding factors and perform final genotyping
 SNPs_merge_finalGT <- SNPs_merge %>% 
   filter(!(ID %in% c(contaminated, bad_seq, whGnm_aneu_ID) | 
              Line %in% whGnm_aneu_line)) %>%
   GenotypeFromGQ(., baseThrsh = 50, naThrsh = 100, diffThrsh = 30) %>%
   filter(finalGT != "./.", finalGQ >= 50)
+
+# with GQ > 50, nrow(SNPs_merge_finalGT) = 14843616 * 0.6372622 = 9459275
+# with GQ > 30, nrow(SNPs_merge_finalGT) = 9844340 (0.6630044)
+# with na GQ > 90, nrow(SNPs_merge_finalGT) = 10506275 (0.7077975)
 
 # SNPs_merge object is no longer needed
 # rm(SNPs_merge)
@@ -271,9 +261,13 @@ n_clones <- SNPs_merge_finalGT %>%
   filter(Rep != "00") %>% 
   pull(ID) %>% unique() %>% length()
 
-n_clones_xTx <- SNPs_merge_finalGT %>% 
+n_clones_LOH_xTx <- SNPs_merge_finalGT %>% 
+  distinct(ID, .keep_all = T) %>%
   filter(Rep != "00") %>%
-  distinct(ID, .keep_all = T) %>% count(Tx_name)
+  count(Tx_ID)
+
+n_clones_LOH_xTx$Tx_ID <- Recode_Tx_ID(n_clones_LOH_xTx$Tx_ID, tx_type = "Tx_ID")
+n_clones_LOH_xTx <- n_clones_LOH_xTx %>% arrange(Tx_ID)
 
 n_all_xTx <- SNPs_merge_finalGT %>% 
   distinct(ID, .keep_all = T) %>% count(Tx_name)
@@ -290,22 +284,31 @@ all_error_rates <- SNPs_merge_finalGT %>%
          QUAL_BYcall >= 1000, QUAL_RMcall >= 1000, !Cut) %>%
   errorFromPhylo(flsHom_support = 4, flsHet_support = 6, output_POSi = F)
 
-
 overall_F_Hom_rate <- sum(all_error_rates$n_F_Hom)/sum(all_error_rates$n_Het_q)
 overall_F_Het_rate <- sum(all_error_rates$n_F_Het)/sum(all_error_rates$n_Hom_q)
 overall_F_BY_rate <- sum(all_error_rates$nRef)/sum(all_error_rates$n_Het_q)
 overall_F_RM_rate <- sum(all_error_rates$nAlt)/sum(all_error_rates$n_Het_q)
 
+all_detected_errors_POSi <- SNPs_merge_finalGT %>% 
+  filter(!Line %in% noAncestor, 
+         QUAL_BYcall >= 1000, QUAL_RMcall >= 1000, !Cut) %>%
+  errorFromPhylo(flsHom_support = 4, flsHet_support = 6, output_POSi = T) %>% 
+  filter(is_error)
+
+detected_errors_POSi_counts <- all_detected_errors_POSi %>% count(POSi)
+detected_errors_POSi_counts %>% ggplot() + geom_histogram(aes(x = n), binwidth = 1)
+all_detected_errors_POSi %>% filter(POSi < 203500 | POSi > 203700)
+
 mixed_anc_GT_POSi <- sitewise_GTs %>% 
   filter(!(fHet_anc >= 0.875 | fHet_anc <= 0.125)) %>% pull(POSi)
 
-repeat_error_POSi <- all_error_rates_POSi %>% filter(is_error) %>% 
+repeat_error_POSi <- all_detected_errors_POSi %>% 
   count(POSi) %>% filter(n > 1) %>% pull(POSi)
 
 high_error_POSi <- c(mixed_anc_GT_POSi, repeat_error_POSi)
 
-SNPs_merge_finalGT <- SNPs_merge_finalGT %>% 
-  filter(!POSi %in% high_error_POSi)
+# SNPs_merge_finalGT <- SNPs_merge_finalGT %>% 
+#   filter(!POSi %in% high_error_POSi)
 
 # Identify and count markers that are heterozygous across nearly all founders
 n_markers <- nrow(sitewise_GTs)
@@ -326,7 +329,9 @@ final_cols <- c("CHROM", "POS", "POSi", "Tx_name", "Tx_ID", "Tx", "Line", "Rep",
 # For each founder group, collect calls in all clones that are Het in the founder
 LOH_SNPs <- SNPs_merge_finalGT %>% 
   ungroup() %>%
-  filter(QUAL_BYcall >= 1000, QUAL_RMcall >= 1000, !Cut) %>% 
+  filter(!POSi %in% high_error_POSi, 
+         QUAL_BYcall >= 1000, QUAL_RMcall >= 1000, 
+         !Cut) %>% 
   select(all_of(final_cols)) %>% 
   anc_GT_fltr(anc_GT = "0/1")
 LOH_SNPs$Line <- droplevels(LOH_SNPs$Line)
@@ -342,28 +347,58 @@ loh_rows <- SNP_rows %in% LOH_rows
 denovo_rows <- !SNP_rows %in% LOH_rows
 denovo_SNPs <- SNPs_merge_finalGT %>% 
   ungroup() %>%
-  filter(denovo_rows, !existing_SNP,
+  filter(denovo_rows, !existing_SNP, !POSi %in% high_error_POSi,
          QUAL_BYcall >= 100, QUAL_RMcall >= 100, !Cut) %>% 
-  select(all_of(final_cols)) 
+  select(all_of(c(final_cols, "REF", "ALT"))) 
 
 # Write table files
 # save(SNPs_merge_finalGT, file = SNPs_merge_filename)
 # save(LOH_SNPs, file = LOH_SNPs_file)
 # save(denovo_SNPs, file = denovo_SNPs_file)
 
+load(file = LOH_SNPs_file)
+
+# Some sites may still be prone to erroneous calls and give false LOH events
+# These are detected as exhibiting extreme allele bias in their conversion
+# We filter out those markers that have been converted at least 10 times
+# toward one allele out of at least 12 marker samplings
+
+false_LOH_markers <- LOH_SNPs %>% 
+  filter(GT != "0/1") %>%
+  count(POSi, CHROM, POS, GT) %>% 
+  pivot_wider(names_from = GT, values_from = n) %>% 
+  rename(Ref = `0/0`, Alt = `1/1`) %>%
+  replace(is.na(.), 0) %>% 
+  filter((Ref < 2 & Alt > 10) | (Alt < 2 & Ref > 10)) %>% # data.frame()
+  pull(POSi)
+
+# LOH_SNPs %>% 
+#   filter(GT != "0/1") %>% 
+#   count(POSi, CHROM, POS, GT) %>% 
+#   pivot_wider(names_from = GT, values_from = n) %>% 
+#   rename(Ref = `0/0`, Alt = `1/1`) %>%
+#   replace(is.na(.), 0) %>% 
+#   filter(POSi %in% false_LOH_markers) %>%
+#   mutate(f_Ref = Ref/(Ref+Alt)) %>%
+#   filter(Ref+Alt > 10) %>% pull(Ref) %>% min()
+# ggplot() + geom_histogram(aes(f_Ref), binwidth = 0.025)
+
+LOH_SNPs <- LOH_SNPs %>% 
+  filter(!POSi %in% false_LOH_markers)
+
 # Calculate number of sites sampled for rate statistics
 ###############################################################################
 n_SNP_sites <- SNPs_merge_finalGT %>% 
-  filter(!Cut) %>% 
+  filter(!POSi %in% high_error_POSi, !Cut) %>% 
   distinct(POSi) %>% nrow()
 n_LOH_sites <- LOH_SNPs %>% distinct(POSi) %>% nrow()
 n_DN_sites <- denovo_SNPs %>% distinct(POSi) %>% nrow()
 n_dropped_sites <- n_sites_mean - n_SNP_sites
 n_dropped_DN <- n_dropped_sites + n_LOH_sites
 
+
 # Different clones have different sets of markers. In order to estimate marker
-# distance in an unbiased way, we randomly sample each marker from all clones,
-# and use the distance for that marker. 
+# distance, we take the mean for each marker accross clones. 
 marker_dist <- LOH_SNPs %>% 
   group_by(ID) %>%
   mutate(d_POS = POSi - lag(POSi)) %>% 
@@ -380,8 +415,38 @@ marker_dist %>%
 marker_dist %>%
   # filter(d_POS < 10000) %>%
   # slice_sample(n = 1000) %>%
-  ggplot() + geom_histogram(aes(x = log10(d_POS)), binwidth = 1/3) +
+  ggplot() + geom_histogram(aes(x = log10(m_d_POSi)), binwidth = 1/3) +
   scale_y_log10()
+
+
+all_chr_DP <- LOH_SNPs %>%
+  dplyr::group_by(Tx, Line, Rep, ID, CHROM) %>% 
+  dplyr::summarise(Ref_DP = mean(Ref_DP_final, na.rm = T),
+                   Alt_DP = mean(Alt_DP_final, na.rm = T),
+                   mean_DP = mean(Sum_DP_final, na.rm = T),
+                   f_Het = sum(GT == "0/1")/sum(GT != "./."))
+
+all_chr_DP <- all_chr_DP %>% 
+  group_by(ID) %>% 
+  mutate(f_Ref_DP = Ref_DP/mean(mean_DP),
+         f_Alt_DP = Alt_DP/mean(mean_DP),
+         f_Sum_DP = mean_DP/mean(mean_DP))
+
+
+# Calculate the fractional difference between the fractional depth of each Chr in each clone
+# and the mean depth of that chromosome
+all_chr_DP <- all_chr_DP %>% group_by(CHROM) %>% 
+  mutate(f_CHROM_Ref_DP = f_Ref_DP/mean(f_Ref_DP),
+         f_CHROM_Alt_DP = f_Alt_DP/mean(f_Alt_DP),
+         f_CHROM_Sum_DP = f_Sum_DP/mean(f_Sum_DP))
+
+
+ID_CHROM_aneuploid <- all_chr_DP %>%
+  filter(((f_CHROM_Ref_DP > 1.8 | f_CHROM_Alt_DP > 1.8) & f_Het > 0.9) | 
+           ((f_CHROM_Ref_DP < 0.2 | f_CHROM_Alt_DP < 0.2) & f_Het < 0.1)) %>%
+  # select(ID, f_Het, contains("DP"))
+  mutate(ID_CHROM = paste0(ID, "_", CHROM))
+
 
 # Tables of LOH boundaries and counts for each clone ------
 all_GT_bounds <- LOH_SNPs %>% 
@@ -400,6 +465,32 @@ all_GT_bounds_aneuCorr <- all_GT_bounds_aneuCorr %>%
 all_GT_bounds_merge <- all_GT_bounds_aneuCorr %>%
   MergeComplexLOHs() %>% 
   MarkTerminalLOHs(ancHet = LOH_SNPs)
+all_GT_bounds_merge$Tx_ID <- Recode_Tx_ID(all_GT_bounds_merge$Tx)
+
+n_conv_markers <- LOH_SNPs %>% filter(GT != "0/1") %>% nrow()
+overall_n_F_Hom <- round(overall_F_Hom_rate * 
+  sum(all_GT_bounds_aneuCorr$length))
+n_singleton_LOH <- all_GT_bounds_merge %>% filter(GT != "0/1", length == 1) %>% nrow()
+n_doubleton_LOH <- all_GT_bounds_merge %>% filter(GT != "0/1", length == 2) %>% nrow()
+n_F_Hom_rem <- overall_n_F_Hom - n_singleton_LOH
+
+doubletons <- data.frame(ID = paste0("c_", 1:n_doubleton_LOH), n = 2)
+n_reps <- 1000
+tot_stats <- data.frame(NULL)
+while(n_reps > 0) {
+  ID_sample <- doubletons %>% slice_sample(n = n_F_Hom_rem, replace = T)
+  ID_counts <- ID_sample %>% count(ID)
+  if(max(ID_counts$n) < 3) {
+    rep_stats_t <- ID_counts %>% count(n, name = "n_n") %>% arrange(n)
+    rep_stats <- data.frame(rep = n_reps, single = rep_stats_t[1, 2], error = rep_stats_t[2, 2])
+    tot_stats <- rbind(tot_stats, rep_stats)
+    n_reps <- n_reps - 1
+  }
+}
+
+# tot_stats_2 <- tot_stats
+mean(tot_stats$single)
+mean(tot_stats$error)
 
 # No longer use this error correction. Now, remove all
 # single-marker LOH events.
@@ -425,7 +516,7 @@ all_LOHcounts_merge <- CategoriesFromID(all_LOHcounts_merge)
 
 # write LOH tables
 ###############################################################################
-write.table(all_LOHbounds_merge_EC, bounds_filename)
-write.table(all_LOHcounts_merge_EC, countsEC_filename)
-write.table(all_LOHcounts_merge, counts_filename)
+# save(all_LOHbounds_merge_NS, file = bounds_filename)
+# save(all_LOHcounts_merge_NS, file = countsEC_filename)
+# save(all_LOHcounts_merge, file = counts_filename)
 

@@ -1,0 +1,87 @@
+---
+title: "marker_coverage"
+author: "Michael Overton"
+date: "`r Sys.Date()`"
+output: 
+  html_document:
+    code_folding: "hide"
+---
+
+***
+
+## Per clone marker density
+
+
+```{r}
+SNPs_counts_Line <- LOH_SNPs %>%
+  filter(Rep != "00") %>%
+  count(Line, CHROM, POS, GT, name = "n_conv") %>%
+  ungroup %>%
+  mutate(per_clone = operate_by_factor_match(n_clones_LOH_Line[, c("Line", "n")], 
+                                             data.frame(Line, n_conv),
+                                             function(x, y) y/x)) 
+m_cover_ID <- LOH_SNPs %>%
+  filter(Rep != "00") %>%
+  ungroup() %>%
+  count(ID)
+
+mean(m_cover_ID$n)
+median(m_cover_ID$n)
+range(m_cover_ID$n)
+
+m_cover_ID %>% ggplot(aes(x = n)) + geom_histogram(binwidth = 500) 
+
+```
+
+## Marker density and LOH counts across MA lines
+
+```{r}
+mean_m_cover_Line <- SNPs_counts_Line %>% 
+  group_by(Line, CHROM, POS) %>%
+  summarize(n_m = sum(n_conv)) %>%
+  ungroup() %>%
+  # filter(n_m > 2) %>%
+  count(Line)
+
+mean_m_cover_Line <- merge(mean_m_cover_Line, LOH_Line, by = "Line")
+
+mean_m_cover_Line %>% 
+  ggplot() + geom_point(aes(x = n, y = tot_LOH)) +
+  # xlim(0, NA) + 
+  ylim(0, NA)
+
+
+
+```
+
+
+
+## Marker density and LOH counts across chromosomes
+
+We want to know whether the differences in marker density are affecting 
+our ability to detect LOH events and our LOH rate estimates. It appears that
+marker density is lower in the middle of larger Chrs, especially IV. We can
+ask what the marker density is per kilobase.
+
+```{r}
+m_cover_CHROM_Tx <- LOH_SNPs %>% 
+  count(Tx_ID, CHROM) %>%
+  mutate(per_bp = operate_by_factor_match(chrom_lengths_BY_df[, c("CHROM", "chrom_length")],
+                                          data.frame(CHROM, n),
+                                          function(x, y) y/x))
+m_cover_CHROM_Tx$Tx_ID <- Recode_Tx_ID(m_cover_CHROM_Tx$Tx_ID, "Tx_ID")
+
+m_cover_CHROM_Tx <- merge(m_cover_CHROM_Tx, 
+                          LOHcounts_CHROM_mean[, c("Tx_ID", "CHROM", "mean_LOH")], 
+                          by = c("Tx_ID", "CHROM"))
+
+m_cover_CHROM_Tx %>% 
+  ggplot() + geom_point(aes(x = per_bp, y = mean_LOH, color = Tx_ID)) +
+  scale_color_manual(values = txPal)
+
+m_cover_CHROM_Tx %>% 
+  ggplot() + geom_point(aes(x = per_bp, y = mean_LOH, color = CHROM)) 
+
+```
+
+

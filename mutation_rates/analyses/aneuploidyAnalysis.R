@@ -30,7 +30,7 @@ dbinom(138, size = 309, prob = 0.3)
 
 qbinom(p = c(0.01, 0.99), size = 30, prob = 0.65)
 
-# Method for detecting aneuploidy in LOH labile clones ------
+# Method for detecting aneuploidy in clones ------
 # Read depth varies systematically among chromosomes and within chromosomes,
 # so detecting aneuploidy by comparing mean chromosomal depth to mean genomic
 # depth may be misleading. Instead:
@@ -43,28 +43,108 @@ qbinom(p = c(0.01, 0.99), size = 30, prob = 0.65)
 # If it is ~0.5 for all 3 segments, this indicates the deletion of one
 # homologous chromosome, if it is ~1.5 for 3/3 segments, amplification of one homolog. 
 
-
-all_chr_DP <- SNPs_merge_finalGT %>% 
-  filter(GT == "0/1") %>%
+all_chr_DP <- LOH_SNPs %>% 
+  # filter(GT == "0/1") %>%
   # filter(Line == "H_C") %>%
   dplyr::group_by(Tx, Line, Rep, ID, CHROM) %>% 
   dplyr::summarise(Ref_DP = mean(Ref_DP_final, na.rm = T),
                    Alt_DP = mean(Alt_DP_final, na.rm = T),
                    mean_DP = mean(Sum_DP_final, na.rm = T),
-                   sd_DP = sd(Sum_DP_final, na.rm = T),
-                   sd_Ref_DP = sd(Ref_DP_final, na.rm = T),
-                   f_Ref = mean(1 - f_Alt, na.rm = T),
-                   sd_f_Ref = sd(1 - f_Alt, na.rm = T),
-                   lo_CI = mean(1 - f_Alt) - sd(1 - f_Alt)/sqrt(n())*2.576, 
-                   up_CI = mean(1 - f_Alt) + sd(1 - f_Alt)/sqrt(n())*2.576,
+                   f_Het = sum(GT == "0/1")/sum(GT != "./."),
+                   # sd_DP = sd(Sum_DP_final, na.rm = T),
+                   # sd_Ref_DP = sd(Ref_DP_final, na.rm = T),
+                   # f_Ref = mean(1 - f_Alt, na.rm = T),
+                   # sd_f_Ref = sd(1 - f_Alt, na.rm = T),
+                   # lo_CI = mean(1 - f_Alt) - sd(1 - f_Alt)/sqrt(n())*2.576, 
+                   # up_CI = mean(1 - f_Alt) + sd(1 - f_Alt)/sqrt(n())*2.576,
                    N = n())
+
+all_ID_DP <- LOH_SNPs %>% 
+  # filter(GT == "0/1") %>%
+  # filter(Line == "H_C") %>%
+  dplyr::group_by(Tx, Line, Rep, ID) %>% 
+  dplyr::summarise(Ref_DP = mean(Ref_DP_final, na.rm = T),
+                   Alt_DP = mean(Alt_DP_final, na.rm = T),
+                   GM_DP = mean(Sum_DP_final, na.rm = T))
+
+
+# Calculate the fractional difference between the depth of each Chr in each clone
+# and the mean depth of that clone
+all_chr_DP <- all_chr_DP %>% 
+  group_by(ID) %>% 
+  mutate(f_Ref_DP = Ref_DP/mean(mean_DP),
+         f_Alt_DP = Alt_DP/mean(mean_DP),
+         f_Sum_DP = mean_DP/mean(mean_DP))
+
+all_chr_DP$f_GM_DP <- operate_by_factor_match(all_ID_DP[, c("ID", "GM_DP")], 
+                                              all_chr_DP[, c("ID", "mean_DP")],
+                                              .fun = function(x, y) y/x)
+
+# Calculate the fractional difference between the fractional depth of each Chr in each clone
+# and the mean depth of that chromosome
+all_chr_DP <- all_chr_DP %>% group_by(CHROM) %>% 
+  mutate(f_CHROM_Ref_DP = f_Ref_DP/mean(f_Ref_DP),
+         f_CHROM_Alt_DP = f_Alt_DP/mean(f_Alt_DP),
+         f_CHROM_Sum_DP = f_Sum_DP/mean(f_Sum_DP),
+         z_CHROM_Sum_DP = (f_GM_DP - mean(f_GM_DP))/sd(f_GM_DP))
+
+z_min <- all_chr_DP %>%
+  select(ID, CHROM, contains("DP")) %>%
+  arrange(z_CHROM_Sum_DP) %>%
+  head(n = floor(nrow(all_chr_DP) * 0.01)) %>% 
+  pull(z_CHROM_Sum_DP) %>% max()
+
+z_max <- all_chr_DP %>%
+  select(ID, CHROM, contains("DP")) %>%
+  arrange(desc(z_CHROM_Sum_DP)) %>%
+  head(n = floor(nrow(all_chr_DP) * 0.01)) %>% 
+  pull(z_CHROM_Sum_DP) %>% min()
+
+all_chr_DP <- all_chr_DP %>% ungroup() %>% 
+  mutate(f_DP = f_CHROM_Ref_DP/(f_CHROM_Ref_DP + f_CHROM_Alt_DP))
+
+all_chr_DP %>% ggplot() + geom_histogram(aes(x = f_DP))
+
+all_chr_DP %>% 
+  # filter(f_CHROM_Alt_DP > 1.8) %>%
+  filter(f_CHROM_Alt_DP > 1.8, f_CHROM_Ref_DP > 0.7) %>%
+  select(ID, CHROM, f_Het, contains("DP"))
+
+all_chr_DP %>% 
+  ggplot() + 
+  # geom_hline(yintercept = z_min) +
+  # geom_hline(yintercept = z_max) +
+  geom_line(aes(x = CHROM, y = z_CHROM_Sum_DP, group = ID))
+
+all_chr_DP %>% 
+  ggplot() + 
+  geom_point(aes(x = f_CHROM_Ref_DP, y = f_CHROM_Alt_DP, color = f_Het)) +
+  scale_color_viridis_b(n.breaks = 10)
+
+all_chr_DP %>% 
+  ggplot() + 
+  geom_point(aes(x = z_CHROM_Sum_DP, y = f_CHROM_Ref_DP, color = f_CHROM_Alt_DP)) +
+  scale_color_viridis_b(n.breaks = 10)
+
+all_chr_DP %>% 
+  ggplot() + 
+  geom_point(aes(x = Ref_DP, y = Alt_DP)) +
+  scale_color_viridis_b(n.breaks = 10)
+
+sigma_r_Ref_DP <- sqrt(var(all_chr_DP$f_DP))
+qnorm(0.05, mean = 0.5, sd = sigma_r_Ref_DP)
+
+nrow(all_chr_DP)
+nrow(all_chr_DP %>% filter(f_CHROM_Ref_DP > 1 - 1.96*sigma_r_Ref_DP & f_CHROM_Ref_DP < 1 + 1.96*sigma_r_Ref_DP))
+
 
 all_chr_DP %>% ggplot() + geom_histogram(aes(x = f_Ref), binwidth = 0.007) + scale_y_log10()
 
 all_chr_DP %>% 
   filter(N >= 20) %>%
   filter(f_Ref < 0.4 | f_Ref > 0.6) %>% 
-  ggplot() + geom_vline(aes(xintercept = 0.3333)) + 
+  ggplot() + 
+  geom_vline(aes(xintercept = 0.3333)) + 
   geom_vline(aes(xintercept = 1 - 0.3333)) + 
   geom_segment(aes(x = lo_CI, xend = up_CI, y = ID, yend = ID))
 
@@ -79,6 +159,48 @@ anu_DP %>% filter(Line == "N_A") %>%
   ggplot(aes(x = CHROM)) + geom_line(aes(y = mean_DP, color = ID, group = ID))
   
 
+# Determiniation of aneuploids:
+# If there is loss of one homolog, but the other remains intact,
+# we expect relative depth to be ~0 for the lost homolog,
+# ~1 for the intact, and a complete LOH. If there is amplification of one homolog and
+# the other remains intact, we expect ~2 and ~1 for their relative
+# depths respectively, and a high proportion of heterozygosity. 
+# If there are gene conversions, we expect an inverse
+# relationship between relative depths with slope = -1, up to the points 
+# (0,2) and (2,0), which indicate loss and amplification. If there is
+# relative depth ~2 and ~0.5, it probably indicates extensive LOH and
+# possible CNV. 
+
+all_chr_DP <- LOH_SNPs %>%
+  dplyr::group_by(Tx, Line, Rep, ID, CHROM) %>% 
+  dplyr::summarise(Ref_DP = mean(Ref_DP_final, na.rm = T),
+                   Alt_DP = mean(Alt_DP_final, na.rm = T),
+                   mean_DP = mean(Sum_DP_final, na.rm = T),
+                   f_Het = sum(GT == "0/1")/sum(GT != "./."))
+
+all_chr_DP <- all_chr_DP %>% 
+  group_by(ID) %>% 
+  mutate(f_Ref_DP = Ref_DP/mean(mean_DP),
+         f_Alt_DP = Alt_DP/mean(mean_DP),
+         f_Sum_DP = mean_DP/mean(mean_DP))
+
+
+# Calculate the fractional difference between the fractional depth of each Chr in each clone
+# and the mean depth of that chromosome
+all_chr_DP <- all_chr_DP %>% group_by(CHROM) %>% 
+  mutate(f_CHROM_Ref_DP = f_Ref_DP/mean(f_Ref_DP),
+         f_CHROM_Alt_DP = f_Alt_DP/mean(f_Alt_DP),
+         f_CHROM_Sum_DP = f_Sum_DP/mean(f_Sum_DP))
+
+
+ID_CHROM_aneuploid <- all_chr_DP %>%
+  filter(((f_CHROM_Ref_DP > 1.8 | f_CHROM_Alt_DP > 1.8) & f_Het > 0.9) | 
+           ((f_CHROM_Ref_DP < 0.2 | f_CHROM_Alt_DP < 0.2) & f_Het < 0.1)) %>%
+  # select(ID, f_Het, contains("DP"))
+  mutate(ID_CHROM = paste0(ID, "_", CHROM))
+
+
+###############################################################################
 all_g_DP <- SNPs_merge_finalGT %>% 
   # filter(GT == "0/1") %>%
   # filter(Line == "H_C") %>%

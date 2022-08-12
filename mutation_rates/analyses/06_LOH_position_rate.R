@@ -1,96 +1,553 @@
+###############################################################################
+# Number of times a SNP has been converted ####
+LOH_SNPs$Tx_ID <- Recode_Tx_ID(LOH_SNPs$Tx)
+
+n_clones_LOH_Line <- LOH_SNPs %>% filter(Rep != "00") %>% distinct(Line, ID) %>% count(Line)
+
+SNPs_counts_Line_GT <- LOH_SNPs %>%
+  filter(Rep != "00") %>%
+  count(Line, CHROM, POS, GT, name = "n_conv") %>%
+  ungroup %>%
+  mutate(per_clone = operate_by_factor_match(n_clones_LOH_Line[, c("Line", "n")], 
+                                             data.frame(Line, n_conv),
+                                             function(x, y) y/x)) 
+mean_m_cover_Line <- SNPs_counts_Line_GT %>% 
+  group_by(Line, CHROM, POS) %>%
+  summarize(n_m = sum(per_clone)) %>%
+  group_by(Line) %>%
+  summarize(mean_m = mean(n_m))
+
+mean_m_cover_Line <- SNPs_counts_Line_GT %>% 
+  group_by(Line, CHROM, POS) %>%
+  summarize(n_m = sum(n_conv)) %>%
+  ungroup() %>%
+  # filter(n_m > 2) %>%
+  count(Line)
+
+SNPs_counts_Line <- LOH_SNPs %>%
+  filter(Rep != "00") %>%
+  count(Line, CHROM, POS, name = "n_clones") %>%
+  ungroup %>%
+  mutate(per_clone = operate_by_factor_match(n_clones_LOH_Line[, c("Line", "n")], 
+                                             data.frame(Line, n_clones),
+                                             function(x, y) y/x)) 
+
+
+# n_LOH against marker density by Line
+mean_m_cover_Line <- SNPs_counts_Line %>% 
+  group_by(Line) %>%
+  summarize(mean_m = mean(per_clone),
+            mean_hi = sum(per_clone > 0.5)/n(),
+            sum_m = n())
+
+LOH_Line <- all_LOHcounts_merge_NS %>% group_by(Line) %>% summarize(tot_LOH = sum(n_LOH))
+
+mean_m_cover_Line <- merge(mean_m_cover_Line, LOH_Line, by = "Line")
+
+mean_m_cover_Line %>% 
+  ggplot() + geom_point(aes(x = mean_m, y = tot_LOH)) +
+  xlim(0, NA) +
+  ylim(0, NA)
+
+###############################################################################
+# Supp Fig. Number of markers vs number of LOH by clone ####
+m_cover_ID <- LOH_SNPs %>% count(ID, name = "n_m")
+m_cover_ID <- merge(m_cover_ID, all_LOHcounts_merge_NS[, c("ID", "n_LOH")], by = "ID")
+
+
+marker_cover_LOH_lm <- lm(n_LOH ~ n_m, data = m_cover_ID)
+summary(marker_cover_LOH_lm)
+
+mcL_coeff <- coefficients(marker_cover_LOH_lm)
+marker_cover_LOH_seg <- data.frame(x.min = min(m_cover_ID$n_m),
+                                   x.max = max(m_cover_ID$n_m),
+                                   y.min = min(m_cover_ID$n_m) * mcL_coeff[2] + mcL_coeff[1],
+                                   y.max = max(m_cover_ID$n_m) * mcL_coeff[2] + mcL_coeff[1])
+
+m_cover_ID %>% 
+  ggplot() + 
+  geom_point(aes(x = n_m, y = n_LOH)) +
+  geom_segment(data = marker_cover_LOH_seg, 
+               aes(x = x.min, xend = x.max, y = y.min, yend = y.max)) +
+  # xlim(0, NA) +
+  ylim(0, NA)
+
+###############################################################################
+# Supp Fig. Marker density vs LOH rate by chromosome ####
+m_cover_CHROM <- LOH_SNPs %>% 
+  count(CHROM, name = "n_m") %>%
+  mutate(m_rate = operate_by_factor_match(chrom_lengths_BY_df[, c("CHROM", "chrom_length")],
+                                          data.frame(CHROM, n_m),
+                                          function(x, y) y/x))
+LOH_rate_CHROM <- all_LOHbounds_merge_NS %>% 
+  count(CHROM, name = "n_LOH") %>%
+  mutate(LOH_rate = operate_by_factor_match(chrom_lengths_BY_df[, c("CHROM", "chrom_length")],
+                                          data.frame(CHROM, n_LOH),
+                                          function(x, y) y/x))
+
+m_cover_CHROM <- merge(m_cover_CHROM, LOH_rate_CHROM, by = "CHROM")
+
+
+marker_cover_CHROM_lm <- lm(LOH_rate ~ m_rate, data = m_cover_CHROM)
+summary(marker_cover_CHROM_lm)
+
+mcL_coeff <- coefficients(marker_cover_CHROM_lm)
+marker_cover_CHROM_seg <- data.frame(x.min = min(m_cover_CHROM$m_rate),
+                                   x.max = max(m_cover_CHROM$m_rate),
+                                   y.min = min(m_cover_CHROM$m_rate) * mcL_coeff[2] + mcL_coeff[1],
+                                   y.max = max(m_cover_CHROM$m_rate) * mcL_coeff[2] + mcL_coeff[1])
+
+m_cover_CHROM %>% 
+  ggplot() + 
+  geom_point(aes(x = m_rate, y = LOH_rate)) +
+  geom_segment(data = marker_cover_CHROM_seg, 
+               aes(x = x.min, xend = x.max, y = y.min, yend = y.max)) +
+  # xlim(0, NA) +
+  ylim(0, NA)
+
+###############################################################################
+
+# Distribution of fraction of total marker coverage 
+SNPs_counts_Line %>% 
+  group_by(Line, CHROM, POS) %>%
+  summarize(n_m = sum(per_clone)) %>%
+  ungroup() %>%
+  ggplot() + 
+  geom_histogram(aes(x = n_m), binwidth = 0.1) +
+  xlim(-0.05, 1.05) +
+  facet_wrap(~Line)
+
+# Fraction of sites have maerker coverage > 0.25
+SNPs_counts_Line %>% 
+  group_by(Line, CHROM, POS) %>%
+  summarize(n_m = sum(per_clone), 
+            f_m = sum(per_clone) >= 0.5) %>%
+  group_by(Line) %>%
+  summarize(f_n_m = mean(n_m), f_f_m = sum(f_m)/n())
+
+SNPs_counts_Line %>% 
+  ggplot() + geom
+
+SNPs_counts_Line %>% 
+  select(!n_conv) %>%
+  pivot_wider(names_from = "GT", values_from = "per_clone", values_fill = 0) %>%
+  rename(Ref = `0/0`, het = `0/1`, Alt = `1/1`) %>%
+  # filter(het >= 0.25) %>%
+  mutate(LOH = Ref + Alt) %>%
+  ggplot() + 
+  # geom_histogram(aes(x = LOH))
+  geom_jitter(aes(x = (LOH + het), y = LOH, #  + 0.1*(2 - as.numeric(Tx_ID)
+                  color = Line),
+              height = 0.01, width = 0.01,
+              size = 0.1) +
+  # geom_point(aes(x = POS, y = (LOH + het), #  + 0.1*(2 - as.numeric(Tx_ID)
+  #                color = Tx_ID), size = 0.3) +
+  # geom_point(aes(x = POS, y = LOH + 0.1*(2 - as.numeric(Tx_ID)), 
+  #                color = Tx_ID), size = 0.5) +
+  # geom_line(aes(x = POS, y = n_conv, color = Tx_ID)) +
+  # scale_y_continuous(limits = c(0, 1)) +
+  facet_grid(.~Line) +
+  # facet_grid(Tx_ID~CHROM, scales = "free_x") +
+  scale_color_manual(values = txPal)
+
+SNPs_counts_Line %>%
+  mutate(LOH = GT != "0/1") %>%
+  # filter(CHROM == "05") %>%
+  ggplot() + 
+  geom_histogram(aes(x = n_conv), binwidth = 1) + 
+  facet_grid(Line~LOH, scales = "free_y")
+
+SNPs_counts_Tx <- LOH_SNPs %>%
+  # filter(Tx_ID == "D") %>%
+  # filter(CHROM == "05") %>% 
+  filter(Rep != "00") %>%
+  count(Tx_ID, CHROM, POS, POSi, GT, name = "n_conv") %>%
+  ungroup %>%
+  # group_by(Tx_ID) %>%
+  # group_modify(.$n_conv, .fun = function(x, y) x/y, y = n_clones_LOH_xTx$n)
+  mutate(per_clone = operate_by_factor_match(n_clones_LOH_xTx[, c("Tx_ID", "n")], 
+                                             data.frame(Tx_ID, n_conv),
+                                             function(x, y) y/x)) 
+
+SNPs_counts <- LOH_SNPs %>%
+  # filter(Tx_ID == "D") %>%
+  # filter(CHROM == "05") %>% 
+  filter(Rep != "00") %>%
+  count(CHROM, POS, POSi, name = "n_clones") %>%
+  ungroup %>%
+  # group_by(Tx_ID) %>%
+  # group_modify(.$n_conv, .fun = function(x, y) x/y, y = n_clones_LOH_xTx$n)
+  mutate(per_clone = n_clones/sum(n_clones_LOH_xTx$n)) 
+
+mean(SNPs_counts$per_clone)
+nrow(SNPs_counts %>% filter(n_clones >= sum(n_clones_LOH_xTx$n)*0.75))/nrow(SNPs_counts)
+
+# Distribution of fraction of total marker coverage 
+SNPs_counts_Tx %>% 
+  group_by(Tx_ID, POSi) %>%
+  summarize(n_m = sum(per_clone)) %>%
+  ggplot() + 
+  geom_histogram(aes(x = n_m), binwidth = 0.05) + 
+  facet_grid(Tx_ID~.)
+
+SNPs_counts_Line %>%
+  ggplot() + 
+  geom_histogram(aes(x = per_clone), binwidth = 0.05)
+  
+# Fraction of sites have maerker coverage > 0.25
+SNPs_counts_Tx %>% 
+  group_by(POSi) %>%
+  summarize(n_m = sum(per_clone), 
+            f_m = sum(per_clone) > 0.5) %>%
+  group_by(Tx_ID) %>%
+  summarize(f_f_m = sum(f_m)/n())
+
+SNPs_counts_Tx %>% 
+  select(!n_conv) %>%
+  pivot_wider(names_from = "GT", values_from = "per_clone", values_fill = 0) %>%
+  rename(Ref = `0/0`, het = `0/1`, Alt = `1/1`) %>%
+  # filter(het >= 0.25) %>%
+  mutate(LOH = Ref + Alt) %>%
+  # filter(CHROM == "09") %>%
+  # filter(POS > 434000) %>%
+  # mutate(LOH = GT != "0/1") %>%
+  # filter(GT != "0/1") %>%
+  # filter(Tx_ID == "W") %>%
+  ggplot() + 
+  # geom_histogram(aes(x = LOH))
+  # geom_jitter(aes(x = (LOH + het), y = LOH, #  + 0.1*(2 - as.numeric(Tx_ID)
+  #                # color = Tx_ID
+  #                ),
+  #             height = 0.01, width = 0.01,
+  #            size = 0.1) +
+  geom_point(aes(x = POS, y = (LOH + het), #  + 0.1*(2 - as.numeric(Tx_ID)
+                 color = Tx_ID
+                 ), size = 0.3) +
+  # geom_point(aes(x = POS, y = LOH + 0.1*(2 - as.numeric(Tx_ID)), 
+  #                color = Tx_ID), size = 0.5) +
+  # geom_line(aes(x = POS, y = n_conv, color = Tx_ID)) +
+  # scale_y_continuous(limits = c(0, 1)) +
+  facet_grid(Tx_ID~CHROM) +
+  # facet_grid(Tx_ID~CHROM, scales = "free_x") +
+  scale_color_manual(values = txPal)
+
+SNPs_counts_Tx %>%
+  mutate(LOH = GT != "0/1") %>%
+  # filter(CHROM == "05") %>%
+  ggplot() + 
+  geom_histogram(aes(x = n_conv), binwidth = 1) + 
+  facet_grid(Tx_ID~LOH, scales = "free_y")
+
+LOH_SNPs %>% 
+  count(Line, ID) %>% 
+  separate(ID, sep = -2, into = c("Line", "Rep"), remove = F) %>%
+  ggplot() + 
+  geom_boxplot(aes(x = Line, y = n)) +
+  geom_point(aes(x = Line, y = n, color = Rep == "00"), alpha = 0.7) +
+  scale_color_manual(values = c("grey60", "Red3")) +
+  ylim(0, NA)
+
+marker_SW <- LOH_SNPs %>%
+  mutate(m = 1) %>%
+  SliderCalc(data_col = "m", index_col = "POSi", 
+             window_size = 50000, slide_interval = 50000,
+             summary_stat = sum, factor_col = "ID", chrom_win = T)
+
+# marker_SW_o <- marker_SW
+
+marker_SW <- marker_SW %>% mutate(start_POSi = round(start), end_POSi = round(end)) %>% select(!start:end)
+s_POS <- marker_SW %>% ConvertPosIndicies(pos_col = "start_POSi", index_out = "POS", add_chroms = T)
+names(s_POS)[1] <- "start_POS"
+e_POS <- marker_SW %>% ConvertPosIndicies(pos_col = "end_POSi", index_out = "POS")
+marker_SW <- data.frame(marker_SW, s_POS[c(2,1)], end_POS = e_POS)
+# marker_SW$Tx_ID <- factor(marker_SW$Tx_ID, levels = c("W", "C", "D"))
+marker_SW <- marker_SW %>% 
+  mutate(mid_POS = start_POS + 50000/2, mid_POSi = (start_POSi + end_POSi)/2,
+         mid_POS_kb = (start_POS + 50000/2)/1000, mid_POSi_kb = (start_POSi + end_POSi)/2000)
+
+marker_SW$rom_CHROM <- factor(chrom_IDs$rom_CHROM[as.numeric(marker_SW$CHROM)], levels = roman_chr)
+
+marker_SW_plot <- marker_SW %>% 
+  # filter(Line != "F_D") %>%
+  # filter(CHROM == "03") %>%
+  # filter(Tx_ID == "D") %>%
+  ggplot(aes(x = mid_POS, y = log10(m))) + 
+  geom_vline(data = centrom_df, aes(xintercept = POS/1000), 
+             linetype = 2,color = "blue4", size = 0.25) +
+  geom_line(aes(color = Line), show.legend = F) +
+  # xlim(0, max(chrom_lengths_BY)) +
+  xlab("Window Position (kb)") + ylab("Breakpoints in window / Breakpoints in chromosome") +
+  xlim(0, NA) + ylim(0, NA) +
+  # scale_color_manual(values = txPal, name = "Strain") + 
+  # scale_fill_manual(values = txPal, name = "Strain") + 
+  facet_wrap(~rom_CHROM, ncol = 4, scales = "free_x") +
+  theme(
+    # legend.text = element_text(size = 13),
+        # legend.title = element_text(size = 14),
+        strip.text = element_text(size = 16),
+        axis.title = element_text(size = 18),
+        axis.text = element_text(size = 16),
+        # text = element_text(size = 18), 
+        plot.margin = margin(20, 20, 20, 20),
+        panel.grid.minor = element_blank(),
+        # legend.position = c(0.97, 0.94),
+        # legend.background = element_rect(fill = "white", color = "white")
+        )
+
+marker_SW_plot
+
+marker_SW <- merge(marker_SW, 
+                   all_LOHrates_SW50k[, c("ID", "CHROM", "start_POSi", "LOH_rate")],
+                   by = c("ID", "CHROM", "start_POSi"))
+
+LOH_ID_SW <- LOH_ID_SW %>% mutate(start_POSi = start)
+marker_SW <- merge(marker_SW, 
+                   LOH_ID_SW[, c("ID", "CHROM", "start_POSi", "bp")],
+                   by = c("ID", "CHROM", "start_POSi"))
+
+marker_lm <- lm(LOH_rate ~ log10(m), data = marker_SW %>% filter(m > 0))
+summary(marker_lm)
+marker_bp_lm <- lm(bp ~ m, data = marker_SW %>% filter(m > 0))
+summary(marker_bp_lm)
+
+###############################################################################
+# Supp Fig. The dependence of LOH detection on number of markers sampled in a 50kb window ####
+
+marker_SW_means <- marker_SW %>% 
+  group_by(start_POSi) %>%
+  summarize(mean_m = mean(m, na.rm = T), 
+            log_mean_m = log10(mean(m, na.rm = T)),
+            mean_LOH = mean(LOH_rate, na.rm = T))
+
+marker_lm <- lm(mean_LOH ~ log_mean_m, data = marker_SW_means)
+summary(marker_lm)
+
+mc_coeff <- coefficients(marker_lm)
+marker_cover_seg <- data.frame(x.min = min(marker_SW_means$log_mean_m),
+                                   x.max = max(marker_SW_means$log_mean_m),
+                                   y.min = min(marker_SW_means$log_mean_m) * mc_coeff[2] + mc_coeff[1],
+                                   y.max = max(marker_SW_means$log_mean_m) * mc_coeff[2] + mc_coeff[1])
+
+
+marker_SW_means %>% ggplot() +
+  geom_point(aes(x = log_mean_m, y = mean_LOH)) +
+  geom_segment(data = marker_cover_seg, aes(x = x.min, xend = x.max, y = y.min, yend = y.max))
+
+###############################################################################
+
+marker_SW %>% ggplot() +
+  geom_jitter(aes(x = m, y = bp), 
+              height = 0.03, width = 0.03,
+              size = 0.25)
+
+
+bin_values <- function(x, binwidth = NULL, n_bins = NULL, breaks = NULL,
+                       output = c("values", "counts")) {
+  n_na <- sum(is.na(x)) 
+  x_clean <- x[!is.na(x)]
+  min_x <- min(x_clean)
+  max_x <- max(x_clean)
+  if(sum(c(length(binwidth) > 0, length(n_bins) > 0, length(breaks) > 0)) == 1) {
+    if(length(binwidth) > 0) {
+    # binwidth
+      bins <- seq(min_x, max_x + binwidth, binwidth)
+    } else if(length(n_bins) > 0) {
+      # n_bins 
+      bins <- seq(min_x, max_x, length.out = n_bins)
+    } else if(length(breaks) > 0) {
+      # n_bins 
+      bins <- breaks
+      bins <- sort(bins)
+      bins <- c(bins, ifelse(min(bins) > min_x, min_x, min(bins)))
+      bins <- c(bins, ifelse(max(bins) < max_x, max_x, max(bins)))
+      bins <- sort(unique(bins))
+      
+    } else {
+      print("Must provide one of binwidth, n_bins, or breaks")
+    }
+  } else {
+    print("Must provide only one of binwidth, n_bins, or breaks")
+  }
+  bins_mid <- (lag(bins)[-1] + bins[-1])/2
+  bins_list <- as.list(bins)
+  hist_low <- lapply(bins_list, function(y) x_clean < y)
+  hist_low <- hist_low[2:length(hist_low)]
+  hist_high <- lapply(bins_list, function(y) x_clean >= y)
+  hist_high <- hist_high[1:(length(hist_high) - 1)]
+  hist_list <- list(NULL)
+  for(l in 1:length(hist_low)) {
+    hist_bt <- mapply(function(w, z) w & z, hist_low[l], hist_high[l])
+    hist_list[[l]] <- hist_bt
+  }
+  hist_names <- paste0("bin_", lag(bins)[-1], "_", bins[-1])
+  bins_low <- lag(bins)[-1]
+  names(hist_list) <- hist_names
+  hist_df <- as.data.frame(hist_list)
+  hist_counts <- apply(hist_df, MARGIN = 2, function(y) sum(y))
+  i_bins <- apply(hist_df, MARGIN = 1, function(y) which(y))
+  names_col <- hist_names[i_bins]
+  bins_col <- bins_mid[i_bins]
+  hist_values <- data.frame(value = x, bin_name = names_col, bin_mid = bins_col)
+  if(output == "counts") {
+    return(hist_counts)
+  } else if(output == "values") {
+    return(hist_values)
+  } else if(sum(output %in% c("values", "counts")) == 2) {
+    hist_list_out <- list(counts = hist_counts, values = hist_values)
+    return(hist_list_out)
+  }
+  
+}
+
+marker_SW$m_bin_name <- bin_values(marker_SW$m, binwidth = 10, output = "values")[, 2]
+marker_SW$m_bin <- bin_values(marker_SW$m, binwidth = 10, output = "values")[, 3]
+
+# marker_SW$m_bin <- factor(marker_SW$m_bin, levels = sort(unique(marker_SW$m_bin)))
+marker_SW$LOH_bin <- ifelse(marker_SW$LOH_rate > 0, 1, 0)
+
+marker_bin_mLOH <- marker_SW %>% group_by(m_bin) %>% summarise(m_LOH = mean(LOH_rate, na.rm = T))
+marker_bin_mLOH %>% ggplot() + geom_point(aes(x = m_bin, y = m_LOH))
+
+marker_LOH_bin <- table(marker_SW$m_bin, marker_SW$LOH_bin) %>% as.data.frame() %>% arrange(Var1)
+
+marker_LOH_bin %>% ggplot() + geom_col(aes(x = Var1, y = Freq, fill = Var2), position = position_dodge())
+
+marker_SW %>% ggplot() +
+  geom_histogram(aes(x = log10(m)), 
+              binwidth = 0.1) +                                                                    
+  facet_grid(LOH_rate >= 0.5~., scales = "free_y")
+
+marker_SW %>% ggplot() +
+  geom_histogram(aes(x = LOH_rate), 
+                 binwidth = 0.1) +                                                                    
+  facet_grid(log10(m) >= 1~., scales = "free_y")
+
+marker_POSi_SW <- marker_SW %>%
+  filter(m > 10) %>%
+  count(start_POSi, CHROM, rom_CHROM, start_POS)
+  
+marker_ID_SW_plot <- marker_POSi_SW %>% 
+  ggplot(aes(x = start_POS, y = n)) + 
+  geom_vline(data = centrom_df, aes(xintercept = POS/1000), 
+             linetype = 2,color = "blue4", size = 0.25) +
+  geom_line() +
+  # xlim(0, max(chrom_lengths_BY)) +
+  xlab("Window Position (kb)") + ylab("Number of clones with marker") +
+  xlim(0, NA) + ylim(0, NA) +
+  # scale_color_manual(values = txPal, name = "Strain") + 
+  # scale_fill_manual(values = txPal, name = "Strain") + 
+  facet_wrap(~rom_CHROM, ncol = 4, scales = "free_x") +
+  theme(
+    # legend.text = element_text(size = 13),
+    # legend.title = element_text(size = 14),
+    strip.text = element_text(size = 16),
+    axis.title = element_text(size = 18),
+    axis.text = element_text(size = 16),
+    # text = element_text(size = 18), 
+    plot.margin = margin(20, 20, 20, 20),
+    panel.grid.minor = element_blank(),
+    # legend.position = c(0.97, 0.94),
+    # legend.background = element_rect(fill = "white", color = "white")
+  )
+marker_ID_SW_plot
+
+marker_SW_Tx <- LOH_SNPs %>%
+  mutate(m = 1) %>%
+  SliderCalc(data_col = "m", index_col = "POSi", 
+           window_size = 50000, slide_interval = 50000,
+           summary_stat = sum, factor_col = "Tx_ID", chrom_win = T)
+
+marker_SW_Tx <- merge(marker_SW_Tx, 
+                   LOH_mid_SW[, c("Tx_ID", "start", "CHROM", "bp")], 
+                   by = c("Tx_ID", "start", "CHROM"))
+
+marker_SW_Tx <- marker_SW_Tx %>% mutate(start_POSi = round(start), end_POSi = round(end)) %>% select(!start:end)
+s_POS <- marker_SW_Tx %>% ConvertPosIndicies(pos_col = "start_POSi", index_out = "POS", add_chroms = T)
+names(s_POS)[1] <- "start_POS"
+e_POS <- marker_SW_Tx %>% ConvertPosIndicies(pos_col = "end_POSi", index_out = "POS")
+marker_SW_Tx <- data.frame(marker_SW_Tx, s_POS[c(2,1)], end_POS = e_POS)
+marker_SW_Tx$Tx_ID <- factor(marker_SW_Tx$Tx_ID, levels = c("W", "C", "D"))
+marker_SW_Tx <- marker_SW_Tx %>% 
+  mutate(mid_POS = start_POS + 50000/2, mid_POSi = (start_POSi + end_POSi)/2,
+         mid_POS_kb = (start_POS + 50000/2)/1000, mid_POSi_kb = (start_POSi + end_POSi)/2000)
+
+marker_SW_Tx$rom_CHROM <- factor(chrom_IDs$rom_CHROM[as.numeric(marker_SW_Tx$CHROM)], levels = roman_chr)
+
+marker_SW_Tx_plot <- marker_SW_Tx %>% 
+  # filter(CHROM == "03") %>%
+  # filter(Tx_name == "Drive") %>%
+  ggplot(aes(x = mid_POS, y = log10(m))) + 
+  geom_vline(data = centrom_df, aes(xintercept = POS/1000), 
+             linetype = 2,color = "blue4", size = 0.25) +
+  # geom_ribbon(aes(ymin = CI_lo, ymax = CI_up, fill = Tx_name, color = Tx_name), 
+  #             size = 0.05, alpha = 0.1) +
+  geom_line(aes(color = Tx_ID)) +
+  # geom_line(data = genome_scores_50kb, 
+  #           aes(x = mid_POS/1000, y = -(score - min_score)/((max(score) - min_score)*3))) +
+  # geom_line(aes(x = mid_POS_kb, y = log(rate, 10), color = Tx_name)) +
+  # geom_point(aes(x = mid_POS_kb, y = rate, color = Tx_name)) +
+  # xlim(0, max(chrom_lengths_BY)) +
+  xlab("Window Position (kb)") + ylab("Breakpoints in window / Breakpoints in chromosome") +
+  xlim(0, NA) + ylim(0, NA) +
+  # scale_y_continuous(limits = c(-1/3, 0.4), 
+  #                    breaks = c(-1/3, -2/9, -1/9, seq(0, 0.4, 0.1)), 
+  #                    labels = c(210, 140, 70, seq(0, 0.4, 0.1))) +
+  scale_color_manual(values = txPal, name = "Strain") + 
+  scale_fill_manual(values = txPal, name = "Strain") + 
+  facet_wrap(~rom_CHROM, ncol = 4, scales = "free_x") +
+  theme(legend.text = element_text(size = 13),
+        legend.title = element_text(size = 14),
+        strip.text = element_text(size = 16),
+        axis.title = element_text(size = 18),
+        axis.text = element_text(size = 16),
+        # text = element_text(size = 18), 
+        plot.margin = margin(20, 20, 20, 20),
+        panel.grid.minor = element_blank(),
+        legend.position = c(0.97, 0.94),
+        legend.background = element_rect(fill = "white", color = "white"))
+
+marker_SW_Tx_plot
+
+marker_SW_Tx %>%
+  ggplot() +
+  geom_jitter(aes(x = m, y = bp, color = Tx_ID), height = 0.3, width = 0, size = 0.25)
+
+marker_SW_Tx %>%
+  ggplot() +
+  geom_histogram(aes(x = m, fill = Tx_ID), binwidth = 1000) +
+  facet_grid(Tx_ID~.)
 
 
 ###############################################################################
-# Mean LOH rates and permutation tests for each chromosome ------
+# Prepare LOH position data ------
 # Calculated as n_LOH_events/n_clones/gens
-POSi_data_in <- all_LOHbounds_merge %>% 
-  filter(length > 1) # %>% 
-  # filter(!isTerm) %>%
-  # filter(!(start_POSi %in% prob_sites | end_POSi %in% prob_sites)) %>%
-  # select(-is_error)
+POSi_data_in <- all_LOHbounds_merge_NS
+  # filter(!isTerm))
 
 POSi_het <- all_GT_bounds_merge %>% 
-  filter(GT == "0/1") # %>% 
-  # filter(!(start_POSi %in% prob_sites | end_POSi %in% prob_sites)) # %>%
-  # select(-is_error)
+  filter(GT == "0/1")
 
-POSi_data_in$est_start_POS <- ConvertPosIndicies(POSi_data_in, pos_col = "est_start", index_out = "POS")
-POSi_data_in$est_end_POS <- ConvertPosIndicies(POSi_data_in, pos_col = "est_end", index_out = "POS")
 
-POSi_data_in$dist_cent_start <- ChromosomeCoordinates(POSi_data_in, POSi_col = "est_start") %>% 
-  pull(dist_cent)
-POSi_data_in$dist_cent_end <- ChromosomeCoordinates(POSi_data_in, POSi_col = "est_end") %>% 
-  pull(dist_cent)
-POSi_data_in <- POSi_data_in %>% mutate(est_mid_POS = (est_start_POS + est_end_POS)/2)
+POSi_data_in <- all_LOHbounds_merge_NS %>% get_LOH_coordinates()
 
-POSi_data_in$ID_CHROM <- paste0(POSi_data_in$ID, "_", POSi_data_in$CHROM)
-whl_chrom <- POSi_data_in %>% 
-  filter(dist_cent_start < 0, dist_cent_end > 0, isTerm) %>% 
-  select(ID, CHROM, GT)
-
-wh_chrom_LOH <- all_LOHbounds_merge_EC %>% 
-  count(ID, CHROM, GT) %>% 
-  pivot_wider(names_from = GT, values_from = n, values_fill = 0)
-
-colnames(wh_chrom_LOH)[3:5] <- c("het", "hom_ref", "hom_alt")
-wh_chrom_ID_CHROM <- wh_chrom_LOH %>% 
-  filter(het == 0 & (hom_ref == 1 | hom_alt == 1)) %>% 
-  mutate(ID_CHROM = paste0(ID, "_", CHROM)) %>% pull(ID_CHROM)
-i_wh_chrom <- POSi_data_in$ID_CHROM %in% wh_chrom_ID_CHROM
-
-i_Term <- POSi_data_in$isTerm
-head_term <- POSi_data_in$dist_cent_start < 0 & POSi_data_in$dist_cent_end < 0
-tail_term <- POSi_data_in$dist_cent_start > 0 & POSi_data_in$dist_cent_end > 0
-cross_h_term <- POSi_data_in$dist_cent_start < 0 & POSi_data_in$dist_cent_end > 0
-cross_ID_CHROM <- POSi_data_in[i_Term & cross_h_term & !i_wh_chrom, ] %>% pull(ID_CHROM)
-
-cross_h_term_ID <- POSi_data_in %>% 
-  filter(isTerm) %>%
-  # mutate(ID_CHROM = paste0(ID, "_", CHROM)) %>% 
-  filter(ID_CHROM %in% cross_ID_CHROM) %>% distinct(ID_CHROM, .keep_all = T) %>% 
-  summarize(ID_CHROM = ID_CHROM, head_term = ifelse(est_start_POS == 1, T, F))
-
-# Correct POS for terminal LOH that do not cross the centromere
-POSi_data_in$est_mid_POS[i_Term] <- ifelse(head_term[i_Term], 
-                                           POSi_data_in$est_end_POS[i_Term], 
-                                           POSi_data_in$est_start_POS[i_Term])
-
-# Correct POS for terminal LOH that do cross the centromere
-i_crct <- i_Term & cross_h_term & !i_wh_chrom
-POSi_data_in$est_mid_POS[i_crct][cross_h_term_ID$head_term] <- 
-  POSi_data_in$est_end_POS[i_crct][cross_h_term_ID$head_term]
-POSi_data_in$est_mid_POS[i_crct][!cross_h_term_ID$head_term] <- 
-  POSi_data_in$est_start_POS[i_crct][!cross_h_term_ID$head_term]
-POSi_data_in$est_mid <- ConvertPosIndicies(POSi_data_in, pos_col = "est_mid_POS", index_out = "POSi")
+POSi_het <- all_GT_bounds_merge %>% 
+  filter(GT == "0/1") %>% get_LOH_coordinates(Het = T)
 
 POSi_data_wHet <- merge(POSi_data_in, POSi_het, all = T) %>% arrange(ID, est_start)
-# 
-# POSi_data_wHet <- all_LOHbounds_2_merge_EC %>% 
-#   filter(!is_error) %>% select(-is_error)
-# 
-# POSi_data_wHet$est_start_POS <- ConvertPosIndicies(POSi_data_wHet, 
-#                                                    pos_col = "est_start", index_out = "POS")
-# POSi_data_wHet$est_end_POS <- ConvertPosIndicies(POSi_data_wHet, 
-#                                                  pos_col = "est_end", index_out = "POS")
-# POSi_data_wHet$est_mid <- ConvertPosIndicies(POSi_data_wHet, 
-#                                              pos_col = "est_mid_POS", index_out = "POSi")
-
-# POSi_data_wHet$est_start_POS[i_crct] <- 1
+POSi_data_wHet$GT <- factor(POSi_data_wHet$GT, levels = GT_levels)
 
 LOH_bounds_plot <- POSi_data_wHet %>%
-# LOH_bounds_plot <- POSi_data_in %>%
-  # all_LOHbounds_2_merge_EC %>%
-  # filter(!is_error) %>% 
-  # filter(!(start_POSi %in% prob_sites | end_POSi %in% prob_sites)) %>%
-  # filter(GT != "0/1") %>%
-  # filter(est_start > 5800000) %>%
-  filter(CHROM == "04") %>%
-  # filter(Tx == "F") %>%
+  # filter(CHROM == "09") %>%
+  # filter(Tx_ID == "W") %>%
+  # filter(est_end > 580000) %>%
+  # filter(GT != "0/1", .preserve = T) %>% 
+  # arrange(start_POSi) %>% 
+  # count(length > 2)
   ggplot() + 
-  geom_segment(aes(x = est_start, xend = est_end, 
-                   y = ID, yend = ID, color = GT), size = 0.75) +
-  # geom_point(aes(x = est_mid, y = ID, color = GT), size = 0.5) +
-  scale_color_manual(values = c(allelePal[1], "grey80", allelePal[3])) +
+  # geom_segment(aes(x = est_start, xend = ifelse(est_length < 10000, est_start + 10000, est_end), 
+                   # y = ID, yend = ID, color = GT), size = 0.75) +
+  geom_point(aes(x = est_mid, y = ID, color = GT), size = 0.5) +
+  scale_color_manual(values = c(allelePal[1], "grey80", allelePal[3]), drop = F) +
   # scale_color_manual(values = allelePal[c(1,3)]) +
   scale_x_continuous(expand = c(0,0)) +
   facet_wrap(~CHROM, scales = "free_x")
@@ -104,6 +561,8 @@ ggsave(file.path(outIntDir, "LOH_bounds_plot.png"),
        units = "in",
        dpi = 600, limitsize = FALSE)
 
+# POSi_data_wHet %>% filter(CHROM == "09", est_end > 5792574, GT != "0/1") %>% count(Tx_ID)
+
 # Use the LOHrateSW() function to determine clone/chromosomes too few markers
 all_LOHrates_Chrm <- POSi_data_wHet %>% 
   LOHrateSW(by_GT = F, win = "CHROM", 
@@ -111,44 +570,80 @@ all_LOHrates_Chrm <- POSi_data_wHet %>%
             rm_zero_valids = F)
 
 low_cover_ID_CHROM <- all_LOHrates_Chrm %>% 
-  filter(prop_valid < 0.4) %>% select(ID, CHROM) %>% 
+  filter(prop_valid < 0.8) %>% select(ID, CHROM) %>% 
   mutate(ID_CHROM = paste0(ID, "_", CHROM))
 
 POSi_data_in$ID_CHROM <- paste0(POSi_data_in$ID, "_", POSi_data_in$CHROM)
 
 POSi_data_in$lc_CHROM <- POSi_data_in$ID_CHROM %in% low_cover_ID_CHROM$ID_CHROM
 
-# Calculate LOH event rates
+###############################################################################
+# Calculate LOH event rates against chromosome length #########################
+
 LOHcounts_ID_CHROM <- POSi_data_in %>% 
-  filter(!lc_CHROM) %>%
   group_by(ID, CHROM, .drop = F) %>% 
     count(name = "n_LOH") %>% as.data.frame()
-
+LOHcounts_ID_CHROM$CHROM <- factor(LOHcounts_ID_CHROM$CHROM)
+LOHcounts_ID_CHROM$chrom_length <- 0
+LOHcounts_ID_CHROM$chrom_length <- operate_by_factor_match(chrom_lengths_BY_df[, c("CHROM", "chrom_length")],
+                          LOHcounts_ID_CHROM[, c("CHROM", "chrom_length")],
+                          .fun = function(x, y) x+y)
 LOHcounts_ID_CHROM <- CategoriesFromID(LOHcounts_ID_CHROM)
-LOHcounts_ID_CHROM$Tx_ID <- Recode_Tx_ID(LOHcounts_ID_CHROM$Tx)
 
-LOHcounts_CHROM_mean <- LOHcounts_ID_CHROM %>% 
-  group_by(CHROM) %>% 
-  summarize(total_LOH = sum(n_LOH), mean_LOH = mean(n_LOH), se_LOH = se(n_LOH), 
-            mean_rate = mean(n_LOH)/n_gens, se_rate = se(n_LOH)/n_gens, 
-            CI_rate = 1.96*se(n_LOH)/n_gens)
-
-LOHcounts_CHROM_mean$CHROM_len <- chrom_lengths_BY
-LOHcounts_CHROM_mean <- LOHcounts_CHROM_mean %>% mutate(bp_rate = total_LOH/CHROM_len)
-
-max(LOHcounts_CHROM_mean$bp_rate)/min(LOHcounts_CHROM_mean$bp_rate)
-
+###############################################################################
+# LOH rate for each strain across chromosomes ######
 LOHcounts_ID_CHROM_mean <- LOHcounts_ID_CHROM %>% 
   group_by(Tx_ID, CHROM) %>% 
   summarize(total_LOH = sum(n_LOH), mean_LOH = mean(n_LOH), se_LOH = se(n_LOH), 
-            mean_rate = mean(n_LOH)/n_gens, se_rate = se(n_LOH)/n_gens, 
-            CI_rate = 1.96*se(n_LOH)/n_gens)
+            mean_rate = sum(n_LOH)/n(), se_rate = se(n_LOH)/n(), 
+            CI_rate = 1.96*se(n_LOH)/n())
 
-LOHcounts_ID_CHROM_mean$rom_CHROM <- roman_chr[as.numeric(LOHcounts_ID_CHROM_mean$CHROM)]
+LOH_CHROM_CI_list <- LOHcounts_ID_CHROM %>% 
+  group_by(Tx_ID, CHROM) %>%
+  group_modify(~ data.frame(boot.ci(boot(.x$n_LOH,
+                                         statistic = sum.fun, R = 1000), 
+                                    type = "perc")$percent[4:5] %>% t())) %>%
+  rename(CI_95lo = X1, CI_95up = X2) %>% 
+  select(CI_95lo, CI_95up)
 
-Tx_combo <- data.frame(Tx_1 = c("WT", "WT", "Cas9"), 
-                       Tx_2 = c("Cas9", "Drive", "Drive"))
+LOHcounts_ID_CHROM_mean <- merge(LOHcounts_ID_CHROM_mean, 
+                                   LOH_CHROM_CI_list,
+                                   by = c("Tx_ID", "CHROM"))
 
+LOHcounts_ID_CHROM_mean$chrom_length <- rep(chrom_lengths_BY, 3)
+LOHcounts_ID_CHROM_mean <- LOHcounts_ID_CHROM_mean %>% 
+  group_by(Tx_ID, CHROM) %>%
+  mutate(bp_rate = total_LOH/chrom_length,
+         bp_CI_lo = CI_95lo/chrom_length,
+         bp_CI_up = CI_95up/chrom_length)
+
+LOHcounts_ID_CHROM_mean$bp_rate <- operate_by_factor_match(
+  n_clones_LOH_xTx,
+  LOHcounts_ID_CHROM_mean[, c("Tx_ID", "bp_rate")],
+  .fun = function(x, y) y/x/n_gens)
+LOHcounts_ID_CHROM_mean$bp_CI_lo <- operate_by_factor_match(
+  n_clones_LOH_xTx,
+  LOHcounts_ID_CHROM_mean[, c("Tx_ID", "bp_CI_lo")],
+  .fun = function(x, y) y/x/n_gens)
+LOHcounts_ID_CHROM_mean$bp_CI_up <- operate_by_factor_match(
+  n_clones_LOH_xTx,
+  LOHcounts_ID_CHROM_mean[, c("Tx_ID", "bp_CI_up")],
+  .fun = function(x, y) y/x/n_gens)
+
+LOHcounts_ID_CHROM_mean$rom_CHROM <- 
+  roman_chr[as.numeric(LOHcounts_ID_CHROM_mean$CHROM)]
+
+aov_LOH_Tx_CHROM <- aov(bp_rate ~ CHROM + Tx_ID, data = LOHcounts_ID_CHROM)
+summary(aov_LOH_Tx_CHROM)
+
+xsq_LOH_CHROM_W_C <- chisq.test(LOHcounts_ID_CHROM_mean %>% filter(Tx_ID == "W") %>% pull(total_LOH),
+                               LOHcounts_ID_CHROM_mean %>% filter(Tx_ID == "C") %>% pull(total_LOH))
+xsq_LOH_CHROM_W_D <- chisq.test(LOHcounts_ID_CHROM_mean %>% filter(Tx_ID == "W") %>% pull(total_LOH),
+                               LOHcounts_ID_CHROM_mean %>% filter(Tx_ID == "D") %>% pull(total_LOH))
+
+
+# Permutation test for each chromosome and combo of strains
+# Measures the difference in means, so normalized to n clones
 all_CHROM_LOHrate_perm <- data.frame(NULL)
 for(tx in 1:nrow(Tx_combo)){
   # tx = 1
@@ -178,67 +673,32 @@ for(tx in 1:nrow(Tx_combo)){
 all_CHROM_LOHrate_perm_slim <- all_CHROM_LOHrate_perm %>% filter(Combo != "Cas9-Drive")
 all_CHROM_LOHrate_perm_slim <- BHcorrection(all_CHROM_LOHrate_perm_slim)
 
-# all_CHROM_LOHrate_perm <- BHcorrection(all_CHROM_LOHrate_perm)
+CHROM_perm_sig <- all_CHROM_LOHrate_perm_slim %>% filter(pVal < FDR)
+all_CHROM_LOHrate_perm_slim$sig_lab_p <- ifelse(all_CHROM_LOHrate_perm_slim$rejectNull == 1, "*", "")
+all_CHROM_LOHrate_perm_slim$sig_lab_BH <- ifelse(all_CHROM_LOHrate_perm_slim$rejectNull_BH == 1, "**", "")
+all_CHROM_LOHrate_perm_slim$sig_lab_both <- paste0(all_CHROM_LOHrate_perm_slim$sig_lab_p, 
+                                                ifelse(all_CHROM_LOHrate_perm_slim$rejectNull_BH == 1, ", ", ""),
+                                                all_CHROM_LOHrate_perm_slim$sig_lab_BH)
 
-
-CHROM_perm_sig <- all_CHROM_LOHrate_perm %>% filter(pVal < FDR)
-all_CHROM_LOHrate_perm$sig_lab_p <- ifelse(all_CHROM_LOHrate_perm$rejectNull == 1, "*", "")
-all_CHROM_LOHrate_perm$sig_lab_BH <- ifelse(all_CHROM_LOHrate_perm$rejectNull_BH == 1, "**", "")
-all_CHROM_LOHrate_perm$sig_lab_both <- paste0(all_CHROM_LOHrate_perm$sig_lab_p, 
-                                                ifelse(all_CHROM_LOHrate_perm$rejectNull_BH == 1, ", ", ""),
-                                              all_CHROM_LOHrate_perm$sig_lab_BH)
-
-combo_cols <- colsplit(all_CHROM_LOHrate_perm$Combo, "-", c("Tx1", "Tx2"))
-all_CHROM_LOHrate_perm <- cbind(all_CHROM_LOHrate_perm, combo_cols)
+combo_cols <- colsplit(all_CHROM_LOHrate_perm_slim$Combo, "-", c("Tx1", "Tx2"))
+all_CHROM_LOHrate_perm_slim <- cbind(all_CHROM_LOHrate_perm_slim, combo_cols)
 
 # all_CHROMrate_perm_order %>% ggplot(aes(x = pVal)) + geom_histogram(binwidth = 0.05)
 
-all_CHROM_LOHrate_perm$Tx1 <- factor(all_CHROM_LOHrate_perm$Tx1, levels = c("WT", "Cas9", "Drive"))
-all_CHROM_LOHrate_perm$Tx2 <- factor(all_CHROM_LOHrate_perm$Tx2, levels = c("WT", "Cas9", "Drive"))
-all_CHROM_LOHrate_perm$Combo <- factor(all_CHROM_LOHrate_perm$Combo)
-sig_CHROMrate <- all_CHROM_LOHrate_perm %>% filter(rejectNull_BH == 1) 
+all_CHROM_LOHrate_perm_slim$Tx1 <- factor(all_CHROM_LOHrate_perm_slim$Tx1, 
+                                          levels = c("WT", "Cas9", "Drive"))
+all_CHROM_LOHrate_perm_slim$Tx2 <- factor(all_CHROM_LOHrate_perm_slim$Tx2, 
+                                          levels = c("WT", "Cas9", "Drive"))
+all_CHROM_LOHrate_perm_slim$Combo <- factor(all_CHROM_LOHrate_perm_slim$Combo)
+sig_CHROMrate <- all_CHROM_LOHrate_perm_slim %>% filter(rejectNull_BH == 1) 
 
 LOH_xCHROM_aov <- aov(n_LOH ~ Tx_name + CHROM, data = LOHcounts_ID_CHROM)
 summary(LOH_xCHROM_aov)
 LOH_xCHROM_Tuk <- TukeyHSD(LOH_xCHROM_aov, "Tx_name")
 LOH_xCHROM_Tuk
 
-y_loc <- max(LOHcounts_ID_CHROM_mean$mean_rate + LOHcounts_ID_CHROM_mean$CI_rate)
-LOHrate_CHROM_line <- LOHcounts_ID_CHROM_mean %>% 
-  # filter(Tx_name != "Cas9") %>%
-  ggplot() + 
-  # geom_errorbar(aes(x = Tx_name, ymin = mean_rate, ymax = mean_rate, color = Tx_name), 
-  #               width = 0.6, position = position_dodge(width = 0.6), size = 0.75) +
-  geom_errorbar(aes(x = Tx_ID, ymin = ifelse(mean_rate - CI_rate < 0, 0, mean_rate - CI_rate), 
-                    ymax = mean_rate + CI_rate, color = Tx_ID),
-                width = 0.2, position = position_dodge(width = 0.6), size = 0.75) +
-  geom_point(aes(x = Tx_ID, y = mean_rate, color = Tx_ID), 
-                position = position_dodge(width = 0.6), size = 4) +
-  # geom_bracket(data = sig_CHROMrate,
-               # y.position = y_loc*1.05 + (as.numeric(sig_CHROMrate$Combo)-1) * y_loc * 0.03, 
-                # step.increase = 0,
-  #              vjust = 0.4, label.size = 5,
-  #              aes(xmin = Tx1, xmax = Tx2, label = sig_lab_BH)) +
-  # geom_text(aes(x = Tx_name, y = -0.00005, label = round(mean_LOH, 2), color = Tx_name),
-  #           position = position_dodge(width = 0.6), show.legend = FALSE) +
-  scale_color_manual(values = txPal[c(3, 2, 1)], name = "Strain") +
-  scale_y_continuous(labels = c(0, format(seq(2.5e-4, 1e-3, 2.5e-4), scientific = T)),
-                     breaks = c(0, seq(2.5e-4, 1e-3, 2.5e-4))) +
-  # ylim(c(0, NA)) +
-  ylab("LOH event rate (/clone/generation)") + 
-  xlab("Chromosome") +
-  facet_wrap(~rom_CHROM, ncol = 8, strip.position = "bottom") +
-  theme(axis.text.x = element_blank(),
-        panel.grid.minor.y = element_blank(),
-        panel.grid.major.x = element_blank(),
-        panel.grid.minor.x = element_blank(),
-        panel.background = element_rect(color = "grey80"),
-        text = element_text(size = 18), 
-        legend.position = c(0.03, 0.93),
-        legend.background = element_rect(fill = "white", color = "white"))
-
-LOHrate_CHROM_line
-
+###############################################################################
+# Main Fig: Chromosome rates by Tx !!!!########################################
 LOHcounts_ID_CHROM_mean$n_CHROM <- as.numeric(LOHcounts_ID_CHROM_mean$CHROM)
 LOHcounts_ID_CHROM_mean$Tx_n <- as.numeric(LOHcounts_ID_CHROM_mean$Tx_ID)
 
@@ -251,13 +711,14 @@ LOHrate_CHROM_line <- LOHcounts_ID_CHROM_mean %>%
            fill = "grey90", alpha = 0.1) +
   # geom_errorbar(aes(x = Tx_name, ymin = mean_rate, ymax = mean_rate, color = Tx_name), 
   #               width = 0.6, position = position_dodge(width = 0.6), size = 0.75) +
-  geom_line(aes(x = n_CHROM + (Tx_n - 2) * point_diff, y = mean_rate, color = Tx_ID, group = Tx_ID), 
+  geom_line(aes(x = n_CHROM + (Tx_n - 2) * point_diff, 
+                y = bp_rate, color = Tx_ID, group = Tx_ID), 
              alpha = 0.7, size = 1) +
   geom_errorbar(aes(x = n_CHROM + (Tx_n - 2) * point_diff, 
-                    ymin = ifelse(mean_rate - CI_rate < 0, 0, mean_rate - CI_rate), 
-                    ymax = mean_rate + CI_rate, color = Tx_ID),
+                    ymin = bp_CI_lo, 
+                    ymax = bp_CI_up, color = Tx_ID),
                 width = 0, alpha = 0.7, size = 0.5) +
-  geom_point(aes(x = n_CHROM + (Tx_n - 2) * point_diff, y = mean_rate, color = Tx_ID), 
+  geom_point(aes(x = n_CHROM + (Tx_n - 2) * point_diff, y = bp_rate, color = Tx_ID), 
              size = 4) +
   # geom_bracket(data = sig_CHROMrate,
   #              y.position = y_loc*1.05 + (as.numeric(sig_CHROMrate$Combo)-1) * y_loc * 0.03, step.increase = 0,
@@ -265,27 +726,26 @@ LOHrate_CHROM_line <- LOHcounts_ID_CHROM_mean %>%
   #              aes(xmin = Tx1, xmax = Tx2, label = sig_lab_BH)) +
   # geom_text(aes(x = Tx_name, y = -0.00005, label = round(mean_LOH, 2), color = Tx_name),
   #           position = position_dodge(width = 0.6), show.legend = FALSE) +
-  scale_color_manual(values = txPal[c(3, 2, 1)], name = "Strain") +
-  scale_y_continuous(labels = c(0, format(seq(2.5e-4, 1e-3, 2.5e-4), scientific = T)),
-                     breaks = c(0, seq(2.5e-4, 1e-3, 2.5e-4))) +
+  scale_color_manual(values = txPal, name = "Strain") +
+  scale_y_continuous(labels = c(0, format(seq(5e-10, 2.5e-9, 5e-10), scientific = T)),
+                     breaks = c(0, seq(5e-10, 2.5e-9, 5e-10))) +
   scale_x_continuous(labels = roman_chr, expand = c(0, 0),
                      breaks = 1:16, limits = c(0.5, 16.5)) +
   # ylim(c(0, NA)) +
-  ylab("LOH event rate (/clone/generation)") + 
+  ylab("LOH event rate (/bp/gen)") + 
   xlab("Chromosome") +
-  # facet_wrap(~rom_CHROM, ncol = 8, strip.position = "bottom") +
-  theme(axis.text.x = element_text(vjust = 5),
+  theme(axis.text.x = element_text(vjust = 3),
         panel.grid.minor.y = element_blank(),
         panel.grid.major.x = element_blank(),
         panel.grid.minor.x = element_blank(),
         # panel.background = element_rect(color = "grey80"),
         text = element_text(size = 24),
-        legend.position = c(0.075, 0.87),
+        legend.position = c(0.9, 0.9),
         legend.background = element_rect(fill = "white", color = "white"))
 
 LOHrate_CHROM_line
 
-ggsave(file.path(outIntDir, "LOHrate_CHROM_line_2022_03.png"), 
+ggsave(file.path(outIntDir, "LOHrate_CHROM_line_2022_04.png"), 
        plot = LOHrate_CHROM_line,
        device = "png",
        width = 16, height = 9, 
@@ -293,82 +753,91 @@ ggsave(file.path(outIntDir, "LOHrate_CHROM_line_2022_03.png"),
        dpi = 600)
 
 ###############################################################################
-# Empirical cumulative distribution of LOH rates along the length of each 
-# chromosome with permuted Anderson-Darling test
-POSi_test_in <- POSi_data_in %>%
-  filter(!isTerm)
+# Empirical cumulative distribution of LOH rates ##############################
+# along the length of each chromosome with permuted Anderson-Darling test
+POSi_test_in <- POSi_data_in # %>%
 
-all_CHROM_LOHprop_KS <- data.frame(NULL)
-for(tx in 1:nrow(Tx_combo)){
+# Hegazy test for all chromosomes and treatments against uniform !!!!#####
+all_CHROM_uni_KS <- data.frame(NULL)
+for(tx in 1:length(Tx_ID_levels)){
   # tx = 1
-  Tx_1 <- Tx_combo$Tx_1[tx]
-  Tx_2 <- Tx_combo$Tx_2[tx]
-  Combo_Chr_KS <- data.frame(Combo = with(Tx_combo[tx, ], paste(Tx_1, Tx_2, sep = "-")),
-                             Tx_1 = Tx_1, Tx_2 = Tx_2,
+  tx_id <- Tx_ID_levels[tx]
+  Combo_Chr_KS <- data.frame(Tx = tx_id,
                              CHROM = chrom_bound_BY$CHROM, 
-                             KSstat = 0, pVal = 0)
-  KS_LOHcounts_1 <- POSi_test_in %>% filter(Tx_name %in% Tx_1) %>% 
-    select(Tx_name, ID, CHROM, est_mid_POS)
-  KS_LOHcounts_2 <- POSi_test_in %>% filter(Tx_name %in% Tx_2) %>% 
-    select(Tx_name, ID, CHROM, est_mid_POS)
+                             KS_stat = 0, p_value = 0)
+  KS_LOHcounts <- POSi_test_in %>% 
+    filter(Tx_ID == tx_id) %>%
+    select(Tx_ID, ID, CHROM, est_mid_POS)
+  KS_LOHcounts$Tx_ID <- droplevels(KS_LOHcounts$Tx_ID)
   for(ch in seq_along(chrom_bound_BY$CHROM)) {
-    # ch = 1
+    # ch = 2
     chr = chrom_bound_BY$CHROM[ch]
-    Chr_LOHcounts_1 <- KS_LOHcounts_1 %>% filter(CHROM == chr)
-    Chr_LOHcounts_2 <- KS_LOHcounts_2 %>% filter(CHROM == chr)
-    Chr_KS <- ks.test(Chr_LOHcounts_1$est_mid_POS, Chr_LOHcounts_2$est_mid_POS, alternative = "two.sided")
-    Combo_Chr_KS[ch, c(5, 6)] <- c(Chr_KS$statistic, Chr_KS$p.value)
+    Chr_LOHcounts_ID <- KS_LOHcounts %>% filter(CHROM == chr)
+    Chr_KS <- hegazy.unif.test(Chr_LOHcounts_ID$est_mid_POS/chrom_lengths_BY[ch])
+    Combo_Chr_KS[ch, "KS_stat"] <- Chr_KS$statistic
+    Combo_Chr_KS[ch, "p_value"] <- Chr_KS$p.value
   }
-  all_CHROM_LOHprop_KS <- rbind(all_CHROM_LOHprop_KS, Combo_Chr_KS)
+  all_CHROM_uni_KS <- rbind(all_CHROM_uni_KS, Combo_Chr_KS)
 }
 
-# all_CHROM_LOHprop_KS <- BHcorrection(all_CHROM_LOHprop_KS)
-all_CHROM_LOHprop_KS_slim <- all_CHROM_LOHprop_KS %>% filter(Combo != "Cas9-Drive")
-all_CHROM_LOHprop_KS_slim <- BHcorrection(all_CHROM_LOHprop_KS_slim)
+all_CHROM_uni_KS <- BHcorrection(all_CHROM_uni_KS, p_col = "p_value")
 
+x <- c(0.33, 0.66, 1)
+
+# Wasserstein test for all chromosomes and treatment combos !!!!#####
 all_CHROM_LOHprop_AD <- data.frame(NULL)
-for(tx in 1:nrow(Tx_combo)){
+for(tx in 1:nrow(Tx_ID_combo)){
   # tx = 1
-  Tx_1 <- Tx_combo$Tx_1[tx]
-  Tx_2 <- Tx_combo$Tx_2[tx]
-  Combo_Chr_AD <- data.frame(Combo = with(Tx_combo[tx, ], paste(Tx_1, Tx_2, sep = "-")),
+  Tx_1 <- Tx_ID_combo$Tx_1[tx]
+  Tx_2 <- Tx_ID_combo$Tx_2[tx]
+  Combo_Chr_AD <- data.frame(Combo = with(Tx_ID_combo[tx, ], paste(Tx_1, Tx_2, sep = "-")),
                              Tx_1 = Tx_1, Tx_2 = Tx_2,
                              CHROM = chrom_bound_BY$CHROM, 
                              ADstat = 0, pVal = 0)
-  AD_LOHcounts <- POSi_test_in %>% filter(Tx_name %in% c(Tx_1, Tx_2)) %>% 
-    # filter(!isTerm) %>%
-    select(Tx_name, ID, CHROM, est_mid_POS)
-  AD_LOHcounts$Tx_name <- droplevels(AD_LOHcounts$Tx_name)
+  LOH_1 <- POSi_test_in %>% 
+    filter(Tx_ID == Tx_1) %>% 
+    filter(!isTerm) %>%
+    select(Tx_ID, ID, CHROM, est_mid_POS)
+  LOH_2 <- POSi_test_in %>% 
+    filter(Tx_ID == Tx_2) %>% 
+    filter(!isTerm) %>%
+    select(Tx_ID, ID, CHROM, est_mid_POS)
+  # AD_LOHcounts$Tx_ID <- droplevels(AD_LOHcounts$Tx_ID)
   for(ch in seq_along(chrom_bound_BY$CHROM)) {
-    # ch = 1
+    # ch = 8
     chr = chrom_bound_BY$CHROM[ch]
-    Chr_LOHcounts_ID <- AD_LOHcounts %>% filter(CHROM == chr)
-    Chr_AD <- ad.test(est_mid_POS ~ Tx_name, data = Chr_LOHcounts_ID, method = "exact")
-    Combo_Chr_AD[ch, c(5, 6)] <- Chr_AD$ad[2, c(1, 3)]
+    Chr_LOH_1 <- LOH_1 %>% filter(CHROM == chr)
+    Chr_LOH_2 <- LOH_2 %>% filter(CHROM == chr)
+    Chr_AD <- wass_test(Chr_LOH_1$est_mid_POS, Chr_LOH_2$est_mid_POS, nboots = 5000)
+    Combo_Chr_AD[ch, c(5, 6)] <- Chr_AD[1:2]
   }
   all_CHROM_LOHprop_AD <- rbind(all_CHROM_LOHprop_AD, Combo_Chr_AD)
 }
 
-all_CHROM_LOHprop_AD_slim <- all_CHROM_LOHprop_AD %>% filter(Combo != "Cas9-Drive")
+all_CHROM_LOHprop_AD_slim <- all_CHROM_LOHprop_AD %>% filter(Combo != "C-D")
 all_CHROM_LOHprop_AD_slim <- BHcorrection(all_CHROM_LOHprop_AD_slim)
+all_CHROM_LOHprop_AD_slim$p_adjust <- p.adjust(all_CHROM_LOHprop_AD_slim$pVal, method = "BH")
+
 ad_label <- all_CHROM_LOHprop_AD_slim %>% filter(rejectNull_BH == 1)
 ad_label$sig <- "*"
 ad_label$Tx_2 <- factor(ad_label$Tx_2, levels = Tx_name_levels)
 ad_label$rom_CHROM <- factor(chrom_IDs$rom_CHROM[as.numeric(ad_label$CHROM)],
                              levels = levels(chrom_IDs$rom_CHROM))
-nLOH_CHROM <- POSi_data_in %>% count(Tx_name, CHROM)
+
+nLOH_CHROM <- POSi_test_in %>% count(Tx_name, CHROM)
 
 marker_set <- data.frame(POSi = clean_markers)
 marker_set_POS <- ConvertPosIndicies(marker_set, pos_col = "POSi", 
                                      index_out = "POS", add_chroms = T)
 marker_set <- cbind(marker_set, marker_set_POS)
-POSi_data_in$rom_CHROM <- factor(chrom_IDs$rom_CHROM[as.numeric(POSi_data_in$CHROM)],
+
+POSi_test_in$rom_CHROM <- factor(chrom_IDs$rom_CHROM[as.numeric(POSi_test_in$CHROM)],
                                  levels = levels(chrom_IDs$rom_CHROM))
 
 # ad_label gives chromosomes and treatment pairs that are significant
 # get position information to make brackets for indicating significance on plot
 
-ecd_sig_region <- POSi_data_in %>%
+ecd_sig_region <- POSi_test_in %>%
   filter(!isTerm, rom_CHROM %in% ad_label$rom_CHROM, Tx_name %in% c("WT", "Drive")) %>% 
   arrange(Tx_name, est_mid_POS) %>% group_by(Tx_name) %>% 
   summarize(rom_CHROM = rom_CHROM, POS = est_mid_POS, f_bp = row_number()/n()) 
@@ -390,13 +859,12 @@ ecd_bracket <- data.frame(rom_CHROM = ecd_sig_hi_POS$rom_CHROM,
 ecd_bracket <- rbind(ecd_sig_hi_POS, ecd_sig_lo_POS)
 ecd_bracket$POS <- mean(ecd_bracket$POS)
 
-LOH_CHROM_ecd <- POSi_data_in %>%
-  filter(!isTerm) %>%
+LOH_CHROM_ecd <- POSi_test_in %>%
   ggplot() +
   geom_segment(data = chrom_lengths_BY_df, 
                aes(x = 0, y = 0, xend = chrom_length/1000, yend = 1), size = 0.1, alpha = 0.9) +
   # geom_polygon(data = ecd_sig_region, aes(x = POS/1000, y = n, fill = Tx_name)) +
-  stat_ecdf(aes(x = est_mid_POS/1000, color = Tx_name)) + 
+  stat_ecdf(aes(x = est_mid_POS/1000, color = Tx_ID)) + 
   # geom_segment(data = ecd_bracket,
   #              aes(x = POS/1000, xend = POS/1000, y = y_lo, yend = y_hi)) +
   # geom_label(data = ad_label, aes(x = 10 , y = 0.85, label = sig, color = Tx_2), 
@@ -404,7 +872,8 @@ LOH_CHROM_ecd <- POSi_data_in %>%
   # geom_point(data = marker_set, aes(x = POS/1000, y = -0.05), shape = "|", size = 0.5) +
   # stat_ecdf(aes(x = POSi), color = "red", size = 0.3) + 
   scale_color_manual(values = txPal, name = "Strain") + 
-  xlab("Chromosome Position (kbp)") + ylab("Cumulative Fraction of LOH events") +
+  xlab("Chromosome Position (kbp)") + 
+  ylab("Cumulative Fraction of LOH events") +
   scale_x_continuous(expand = c(0.01, 0.01)) +
   facet_wrap(~rom_CHROM, ncol = 4, scales = "free_x") +
   theme(
@@ -438,7 +907,8 @@ LOH_CHROM_ecd_sub <- ecd_in %>%
   stat_ecdf(aes(x = est_mid_POS/1000, color = Tx_name)) + 
   geom_point(data = marker_in, aes(x = POS/1000, y = -0.05), shape = "|", size = 1) +
   geom_segment(data = chrom_lengths_in, 
-               aes(x = 0, y = 0, xend = chrom_length/1000, yend = 1), size = 0.1, alpha = 0.9) +
+               aes(x = 0, y = 0, xend = chrom_length/1000, yend = 1), 
+               size = 0.1, alpha = 0.9) +
   # stat_ecdf(aes(x = POSi), color = "red", size = 0.3) + 
   scale_color_manual(values = txPal, name = "Strain") + 
   xlab("Chromosome Position (kb)") + ylab("Cumulative Fraction of Breakpoints") +
@@ -460,20 +930,14 @@ ggsave(file.path(outIntDir, "iLOH_BPrate_ecd_sub_2022_02.png"),
        dpi = 600)
 
 
-# Fractional distribution of LOH events by chromosome #########################
-POSi_test_in <- POSi_data_in %>%
-  filter(!isTerm)
-
-POSi_test_in
-
-
 ###############################################################################
-# LOH event rate for 1/3 chromosomes
+# LOH event rate for 1/3 chromosomes ####
 
-all_LOHrates_Chrm3 <- POSi_data_wHet %>% LOHrateSW(by_GT = F, win = "CHROM/3", chrom_df = chrom_bound_BY)
+all_LOHrates_Chrm3 <- POSi_data_wHet %>% 
+  LOHrateSW(by_GT = F, win = "CHROM/3", chrom_df = chrom_bound_BY)
 
 low_cover_ID_CHROM3 <- all_LOHrates_Chrm3 %>% 
-  filter(prop_valid < 0.3) %>% select(ID, CHROM3) %>% 
+  filter(prop_valid < 0.4) %>% select(ID, CHROM3) %>% 
   mutate(ID_CHROM3 = paste0(ID, "_", CHROM3))
 
 chrom3s <- floor(chrom_lengths_BY/3)
@@ -484,38 +948,80 @@ chrom3_bound_BY <- data.frame(CHROM = chrom_bound_BY$CHROM,
                               mid2 = chrom_bound_BY$Start + chrom3s*2,
                               End = chrom_bound_BY$End)
 
-POSi_data_in$CHROM3 <- "00"
+chrom3_len <- chrom3_bound_BY %>% 
+  mutate(d_1 = mid1 - Start, d_2 = mid2 - mid1, d_3 = End - mid2) %>%
+  select(!Start:End) %>%
+  pivot_longer(cols = d_1:d_3, names_to = "chrom3", values_to = "len") %>%
+  mutate(CHROM3 = paste0(CHROM, "_", substr(chrom3, 3, 3)))
+
+POSi_test_in$CHROM3 <- "00"
 for(i in 1:16) {
   # i = 1
   chr <- chrom3_bound_BY[i, "CHROM"]
   chr3 <- paste(chr, 1:3, sep = "_")
-  i_pos1 <- POSi_data_in$est_mid >= chrom3_bound_BY[i, "Start"] & 
-    POSi_data_in$est_mid < chrom3_bound_BY[i, "mid1"]
-  i_pos2 <- POSi_data_in$est_mid >= chrom3_bound_BY[i, "mid1"] & 
-    POSi_data_in$est_mid < chrom3_bound_BY[i, "mid2"]
-  i_pos3 <- POSi_data_in$est_mid >= chrom3_bound_BY[i, "mid2"] & 
-    POSi_data_in$est_mid <= chrom3_bound_BY[i, "End"]
-  POSi_data_in$CHROM3[i_pos1] <- chr3[1]
-  POSi_data_in$CHROM3[i_pos2] <- chr3[2]
-  POSi_data_in$CHROM3[i_pos3] <- chr3[3]
+  i_pos1 <- POSi_test_in$est_mid >= chrom3_bound_BY[i, "Start"] & 
+    POSi_test_in$est_mid < chrom3_bound_BY[i, "mid1"]
+  i_pos2 <- POSi_test_in$est_mid >= chrom3_bound_BY[i, "mid1"] & 
+    POSi_test_in$est_mid < chrom3_bound_BY[i, "mid2"]
+  i_pos3 <- POSi_test_in$est_mid >= chrom3_bound_BY[i, "mid2"] & 
+    POSi_test_in$est_mid <= chrom3_bound_BY[i, "End"]
+  POSi_test_in$CHROM3[i_pos1] <- chr3[1]
+  POSi_test_in$CHROM3[i_pos2] <- chr3[2]
+  POSi_test_in$CHROM3[i_pos3] <- chr3[3]
 }
 
-POSi_data_in$CHROM3 <- factor(POSi_data_in$CHROM3)
-POSi_data_in$ID_CHROM3 <- paste0(POSi_data_in$ID, "_", POSi_data_in$CHROM3)
+POSi_test_in$CHROM3 <- factor(POSi_test_in$CHROM3)
+POSi_test_in$ID_CHROM3 <- paste0(POSi_test_in$ID, "_", POSi_test_in$CHROM3)
 
-POSi_data_in$lc_CHROM3 <- POSi_data_in$ID_CHROM3 %in% low_cover_ID_CHROM3$ID_CHROM3
+POSi_test_in$lc_CHROM3 <- POSi_test_in$ID_CHROM3 %in% low_cover_ID_CHROM3$ID_CHROM3
 
-LOHcounts_ID_CHROM3 <- POSi_data_in %>% 
+LOHcounts_ID_CHROM3 <- POSi_test_in %>% 
   filter(!lc_CHROM3) %>%
   group_by(ID, CHROM3, .drop = F) %>% count(name = "n_LOH") %>% as.data.frame()
 LOHcounts_ID_CHROM3 <- CategoriesFromID(LOHcounts_ID_CHROM3)
+
 LOHcounts_ID_CHROM3_mean <- LOHcounts_ID_CHROM3 %>% 
-  group_by(Tx_name, CHROM3) %>% 
-  summarize(total_LOH = sum(n_LOH), mean_LOH = mean(n_LOH), se_LOH = se(n_LOH), 
-            mean_rate = mean(n_LOH)/n_gens, se_rate = se(n_LOH)/n_gens, CI_rate = 1.96*se(n_LOH)/n_gens)
+  group_by(Tx_ID, CHROM3) %>% 
+  summarize(total_LOH = sum(n_LOH), mean_LOH = mean(n_LOH), se_LOH = se(n_LOH))
+
 LOHcounts_ID_CHROM3_mean$CHROM <- factor(substr(LOHcounts_ID_CHROM3_mean$CHROM3, 1, 2))
 LOHcounts_ID_CHROM3_mean$CHROM3_pos <- factor(substr(LOHcounts_ID_CHROM3_mean$CHROM3, 4, 4))
+LOHcounts_ID_CHROM3_mean$CHROM3_len <- rep(chrom3_len$len, 3)
 
+LOH_CHROM3_CI_list <- LOHcounts_ID_CHROM3 %>% 
+  group_by(Tx_ID, CHROM3) %>%
+  group_modify(~ data.frame(boot.ci(boot(.x$n_LOH,
+                                         statistic = sum.fun, R = 1000), 
+                                    type = "perc")$percent[4:5] %>% t())) %>%
+  rename(CI_95lo = X1, CI_95up = X2) %>% 
+  select(CI_95lo, CI_95up)
+
+LOHcounts_ID_CHROM3_mean <- merge(LOHcounts_ID_CHROM3_mean, 
+                                 LOH_CHROM3_CI_list,
+                                 by = c("Tx_ID", "CHROM3"))
+
+LOHcounts_ID_CHROM3_mean <- LOHcounts_ID_CHROM3_mean %>% 
+  mutate(bp_rate = total_LOH/CHROM3_len,
+         bp_CI_lo = CI_95lo/CHROM3_len,
+         bp_CI_up = CI_95up/CHROM3_len)
+
+LOHcounts_ID_CHROM3_mean$bp_rate <- operate_by_factor_match(
+  n_clones_LOH_xTx,
+  LOHcounts_ID_CHROM3_mean[, c("Tx_ID", "bp_rate")],
+  .fun = function(x, y) y/x)
+LOHcounts_ID_CHROM3_mean$bp_CI_lo <- operate_by_factor_match(
+  n_clones_LOH_xTx,
+  LOHcounts_ID_CHROM3_mean[, c("Tx_ID", "bp_CI_lo")],
+  .fun = function(x, y) y/x)
+LOHcounts_ID_CHROM3_mean$bp_CI_up <- operate_by_factor_match(
+  n_clones_LOH_xTx,
+  LOHcounts_ID_CHROM3_mean[, c("Tx_ID", "bp_CI_up")],
+  .fun = function(x, y) y/x)
+
+# LOHcounts_ID_CHROM3_mean <- LOHcounts_ID_CHROM3_mean %>% mutate(bp_rate = mean_LOH/CHROM3_len, 
+#                                                                 CI_95lo = (mean_LOH - se_LOH)/CHROM3_len, 
+#                                                                 CI_95up = (mean_LOH + se_LOH)/CHROM3_len)
+#   
 ch3_names <- sort(unique(LOHcounts_ID_CHROM3$CHROM3))
 all_CHROM3_LOHrate_perm <- data.frame(NULL)
 for(tx in 1:nrow(Tx_combo)){
@@ -532,7 +1038,8 @@ for(tx in 1:nrow(Tx_combo)){
                           cat_names = with(Tx_combo[tx, ], c(Tx_1, Tx_2)), 
                           response_var = "n_LOH", 
                           alpha = 0.05,
-                          n_perms = 10000, alt_hyp = "two-tailed")
+                          n_perms = 10000, alt_hyp = "two-tailed",
+                          rtrn = "all", include_matrix = F)
     all_chr3_perm[c_i, 3:6] <- unlist(chr3_perm[1:4])
     print(paste(all_chr3_perm[1, "Combo"], chr3, sep = " "))
   }
@@ -542,7 +1049,10 @@ for(tx in 1:nrow(Tx_combo)){
 i_false_sig <- all_CHROM3_LOHrate_perm$pVal >= 0.05 & all_CHROM3_LOHrate_perm$rejectNull == 1
 all_CHROM3_LOHrate_perm$rejectNull[i_false_sig] <- 0
 
+all_CHROM3_LOHrate_perm_slim <- all_CHROM3_LOHrate_perm %>% filter(Combo != "Cas9-Drive")
 all_CHROM3_LOHrate_perm <- BHcorrection(all_CHROM3_LOHrate_perm)
+all_CHROM3_LOHrate_perm_slim <- BHcorrection(all_CHROM3_LOHrate_perm_slim)
+all_CHROM3_LOHrate_perm_slim$p_adjust <- p.adjust(all_CHROM3_LOHrate_perm_slim$pVal)
 
 all_CHROM3_LOHrate_perm$sig_lab_p <- ifelse(all_CHROM3_LOHrate_perm$rejectNull == 1, "*", "")
 all_CHROM3_LOHrate_perm$sig_lab_BH <- ifelse(all_CHROM3_LOHrate_perm$rejectNull_BH == 1, "**", "")
@@ -569,10 +1079,10 @@ as.n <- function(x) {
 LOHrate_CHROM3_line <- LOHcounts_ID_CHROM3_mean %>% 
   ggplot() + 
   facet_wrap(~CHROM, ncol = 8, strip.position = "bottom", scales = "free_x") +
-  geom_errorbar(aes(x = CHROM3_pos, ymin = mean_rate, ymax = mean_rate, color = Tx_name), 
+  geom_errorbar(aes(x = CHROM3_pos, y = bp_rate, ymin = bp_rate, ymax = bp_rate, color = Tx_ID), 
                 width = 0.6, position = position_dodge(width = 0.85), size = 0.75) +
-  geom_errorbar(aes(x = CHROM3_pos, ymin = ifelse(mean_rate - CI_rate < 0, 0, mean_rate - CI_rate), 
-                    ymax = mean_rate + CI_rate, color = Tx_name),
+  geom_errorbar(aes(x = CHROM3_pos, ymin = bp_CI_lo,
+                    ymax = bp_CI_up, color = Tx_ID),
                 width = 0, position = position_dodge(width = 0.85), size = 0.75) +
   # geom_bracket(data = sig_CHROM3rate,
   #              y.position = y_loc*1.05 + (as.numeric(sig_CHROM3rate$Combo)-1)*y_loc*0.07,
@@ -581,18 +1091,18 @@ LOHrate_CHROM3_line <- LOHcounts_ID_CHROM3_mean %>%
   #              aes(xmin = as.n(CHROM3_pos) + 0.333*0.85*(as.n(Tx1)-2),
   #                  xmax = as.n(CHROM3_pos) + 0.333*0.85*(as.n(Tx2)-2),
   #                  label = sig_lab_both)) +
-  geom_text(aes(x = CHROM3_pos, y = -0.00005, label = total_LOH, color = Tx_name),
+  geom_text(aes(x = CHROM3_pos, y = -5E-8, label = total_LOH, color = Tx_ID),
             position = position_dodge(width = 0.85), show.legend = FALSE, size = 3.5) +
-  scale_color_manual(values = txPal, name = "Drive Type") +
+  scale_color_manual(values = txPal, name = "Strain") +
   # ylim(c(0, NA)) +
-  ylab("LOH event rate (/genome/generation)") + 
+  ylab("LOH event rate (/bp)") + 
   xlab("Chromosome") +
   theme(axis.text.x = element_blank(),
         panel.grid.minor.y = element_blank(),
         panel.grid.major.x = element_blank(),
         panel.grid.minor.x = element_blank(),
         panel.background = element_rect(color = "grey80"),
-        text = element_text(size = 14))
+        text = element_text(size = 20))
 
 LOHrate_CHROM3_line
 
@@ -642,11 +1152,13 @@ m4 <- pairwise.wilcox.test(LOHcounts_ID_CHROM3_mean$mean_rate,
 summary(m)
 
 ###############################################################################
+# Rate of LOH conversion for 50kb windows across each chromosome ####
 
 all_LOHrates_SW50k <- POSi_data_wHet %>% 
-  LOHrateSW(by_GT = F, win = 50000, chrom_df = chrom_bound_BY)
+  LOHrateSW(by_GT = F, win = 50000, slide_dist = 50000, chrom_df = chrom_bound_BY)
 mean_LOHrates50k <- all_LOHrates_SW50k %>% 
-  rateMeans_xTx(per_gen = T)
+  mutate(POSi = start_POSi, POS = start_POS) %>%
+  rateMeans_xTx(per_gen = T) 
 mean_LOHrates50k <- mean_LOHrates50k %>% 
   filter(n_clones >= 20)
 mean_LOHrates50k <- ChromosomeCoordinates(mean_LOHrates50k)
@@ -661,8 +1173,9 @@ mean_LOHrates50k_I <- mean_LOHrates50k_I %>%
 mean_LOHrates50k_I <- ChromosomeCoordinates(mean_LOHrates50k_I)
 
 all_LOHrates_SW50k_T <- POSi_data_wHet %>% 
-  filter(isTerm)) %>% 
+  filter(GT == "0/1" | isTerm) %>% 
   LOHrateSW(by_GT = F, win = 50000, chrom_df = chrom_bound_BY)
+
 mean_LOHrates50k_T <- all_LOHrates_SW50k_T %>%
   rateMeans_xTx(per_gen = T) %>% 
   filter(n_sites > 0 & !is.na(rate))
@@ -711,8 +1224,8 @@ SW_LOH_plot <- ggplot() +
              size = 0.2)  +
   # geom_blank(data = subset(smooth_sw_in, CHROM == "04"), 
   #            aes(x = plot_POS, y = rate/n_gens, color = Tx_name)) +
-  scale_color_manual(values = txPal, name = "Drive type") +
-  scale_fill_manual(values = txPal, name = "Drive type") +
+  scale_color_manual(values = txPal, name = "Strain") +
+  scale_fill_manual(values = txPal, name = "Strain") +
   scale_x_continuous(expand = expansion(0, 0)) +
   scale_y_continuous(expand = expansion(0, 5E-6), 
                      labels = function(x) format(x, scientific = TRUE),
@@ -736,31 +1249,104 @@ ggsave(file.path(outIntDir, "bCHROM_LOHrate_plot_2021_11.png"),
        dpi = 600)
 
 ###############################################################################
-# LOH rate vs chromsome size
+# LOH rate vs chromsome size ####
 
 LOHcounts_ID_CHROM_mean$chrom_length <- rep(chrom_lengths_BY, 3)
 
-LOH_chrom_reg <- lm(mean_LOH ~ chrom_length, data = LOHcounts_ID_CHROM_mean)
-summary(LOH_chrom_reg)
-LOH_chrom_reg$coefficients
+# Expected chromosome rate given genomic rate and chromosome size
+LOHcounts_CHROM <- LOHcounts_ID_CHROM %>% 
+  group_by(CHROM) %>% 
+  summarize(total = sum(n_LOH))
+LOH_CHROM_CI_list <- LOHcounts_ID_CHROM %>% 
+  group_by(CHROM) %>%
+  group_modify(~ data.frame(boot.ci(boot(.x$n_LOH,
+                                         statistic = sum.fun, R = 1000), 
+                                    type = "perc")$percent[4:5] %>% t())) %>%
+  rename(CI_95lo = X1, CI_95up = X2) %>% 
+  select(CI_95lo, CI_95up)
+
+LOHcounts_CHROM <- merge(LOHcounts_CHROM, 
+                         LOH_CHROM_CI_list,
+                         by = c("CHROM"))
+
+LOHcounts_CHROM$chrom_length <- chrom_lengths_BY
+LOHcounts_CHROM <- LOHcounts_CHROM %>% mutate(rate = total/chrom_length/sum(n_clones_LOH_xTx$n)/n_gens,
+                                              rate_CI_95lo = CI_95lo/chrom_length/sum(n_clones_LOH_xTx$n)/n_gens,
+                                              rate_CI_95up = CI_95up/chrom_length/sum(n_clones_LOH_xTx$n)/n_gens)
 
 
-LOHcounts_ID_CHROM_mean %>% ggplot() +
-  stat_smooth(data = LOH_chrom_reg$model, 
-              aes_string(x = names(LOH_chrom_reg$model)[2], y = names(LOH_chrom_reg$model)[1]), 
-              method = "lm", col = "grey20", size = 0.5) +
-  geom_point(aes(x = chrom_length, y = mean_LOH, color = Tx_name)) +
+expected_CHROM_rate <- lapply(chrom_lengths_BY_df$chrom_length,
+                              function(y) sum(mean_LOHrate$sum_LOH)*(y/g_length)) %>%
+  do.call("rbind", .) %>%
+  as.data.frame() %>% rename(n_LOH = V1)
+
+LOHcounts_CHROM <- cbind(LOHcounts_CHROM, expected_LOH = expected_CHROM_rate$n_LOH)
+
+max(LOHcounts_CHROM$rate)/min(LOHcounts_CHROM$rate)
+
+expected_TxCHROM_rate <- LOHcounts_ID_CHROM_mean %>% 
+  select(Tx_ID, CHROM, total_LOH, bp_rate, bp_CI_lo, bp_CI_up)
+
+expected_TxCHROM_rate <- lapply(mean_LOHrate$sum_LOH, 
+                                function(x) sapply(chrom_lengths_BY_df$chrom_length,
+                                                   function(y) x * (y/g_length))) %>% 
+  as.data.frame(col.names = Tx_ID_levels) %>% 
+  mutate(CHROM = chrom_lengths_BY_df$CHROM) %>% 
+  pivot_longer(cols = 1:3, names_to = "Tx_ID", values_to = "expected_LOH") %>%
+  merge(expected_TxCHROM_rate, ., by = c("Tx_ID", "CHROM")) %>% 
+  arrange(Tx_ID)
+
+expected_TxCHROM_rate <- lapply(mean_LOHrate$sum_LOH, 
+       function(x) sapply(chrom_lengths_BY_df$chrom_length,
+                          function(y) x * (y/g_length) / y / n_gens /
+                            mean_LOHrate$n_clones[mean_LOHrate$sum_LOH == x])) %>% 
+  as.data.frame(col.names = Tx_ID_levels) %>% 
+  mutate(CHROM = chrom_lengths_BY_df$CHROM) %>% 
+  pivot_longer(cols = 1:3, names_to = "Tx_ID", values_to = "e_bp_rate") %>% 
+  arrange(Tx_ID, CHROM) %>% select(e_bp_rate) %>% cbind(expected_TxCHROM_rate, .)
+
+# expected_TxCHROM_rate$per_gen <- expected_TxCHROM_rate$per_clone/n_gens
+expected_TxCHROM_rate$chrom_length <- rep(chrom_lengths_BY, 3)
+
+
+lm_coeff_list <- LOHcounts_ID_CHROM_mean %>% 
+  group_by(Tx_ID) %>% 
+  group_map(~ lm(bp_rate ~ chrom_length, data = .x)$coefficients)
+
+names(lm_coeff_list) <- Tx_ID_levels
+lm_coeff_df <- do.call(rbind, lm_coeff_list) %>% as.data.frame()
+colnames(lm_coeff_df) <- c("b", "m")
+lm_coeff_df$Tx_ID <- rownames(lm_coeff_df)
+lm_coeff_df <- lm_coeff_df %>% 
+  mutate(.x = min(chrom_lengths_BY), 
+         .xend = max(chrom_lengths_BY), 
+         .y = min(chrom_lengths_BY) * m + b, 
+         .yend = max(chrom_lengths_BY) * m + b)
+
+
+LOHcounts_ID_CHROM_mean %>% 
+  group_by(CHROM) %>%
+  # summarize(.chrom_length = mean(chrom_length),
+  #           .mean_LOH = mean(bp_rate)) %>%
+  ggplot() +
+  # geom_line(data = expected_TxCHROM_rate,
+  #           aes(x = chrom_length, y = bp_rate, color = Tx_ID), size = 1) +
+  geom_segment(data = lm_coeff_df, aes(x = .x, xend = .xend, y = .y, yend = .yend, color = Tx_ID), size = 1) +
+  # stat_smooth(data = LOH_chrom_reg$model,
+  #             aes_string(x = names(LOH_chrom_reg$model)[2], y = names(LOH_chrom_reg$model)[1]), 
+  #             method = "lm", col = "grey20", size = 0.5) +
+  geom_point(aes(x = chrom_length, y = bp_rate, color = Tx_ID), size = 3) +
   # geom_abline(aes(intercept = LOH_chrom_reg$coefficients[1], slope = LOH_chrom_reg$coefficients[2])) +
+
+  # geom_text(check_overlap = T, hjust = 0, aes(x = 1.1E6, y = 0.15), 
+  #           label = paste0("y = ", formatC(LOH_chrom_reg$coef[[2]], 2, format = "E"), 
+  #                          "x + ", signif(LOH_chrom_reg$coef[[1]], 3),
+  #                         "\nAdj R2 = ", signif(summary(LOH_chrom_reg)$adj.r.squared, 3),
+  #                    # "\nIntercept =",signif(LOH_chrom_reg$coef[[1]], 3),
+  #                    # "\nSlope =", formatC(LOH_chrom_reg$coef[[2]], 2, format = "E"),
+  #                    "\np = ",formatC(summary(LOH_chrom_reg)$coef[2,4], 2, format = "E"))) +
   scale_color_manual(values = txPal) +
-  ylim(0, NA) + xlim(0,NA) +
-  geom_text(check_overlap = T, hjust = 0, aes(x = 1.1E6, y = 0.15), 
-            label = paste0("y = ", formatC(LOH_chrom_reg$coef[[2]], 2, format = "E"), 
-                           "x + ", signif(LOH_chrom_reg$coef[[1]], 3),
-                          "\nAdj R2 = ", signif(summary(LOH_chrom_reg)$adj.r.squared, 3),
-                     # "\nIntercept =",signif(LOH_chrom_reg$coef[[1]], 3),
-                     # "\nSlope =", formatC(LOH_chrom_reg$coef[[2]], 2, format = "E"),
-                     "\np = ",formatC(summary(LOH_chrom_reg)$coef[2,4], 2, format = "E")))
-  # facet_wrap(~Tx_name, ncol = 1)
+  ylim(0, NA) + xlim(0,NA) 
 
 ggplotReg <- function (fit) {
   
@@ -778,36 +1364,30 @@ ggplotReg <- function (fit) {
 ggplotReg(LOH_chrom_reg)
 
 
-#!!!###########################################################################
-# Rate of breakpoints per clone per position window within chromosomes
-
-# POSi_data_in$est_mid_crct <- ConvertPosIndicies(POSi_data_in, pos_col = "est_mid_POS", index_out = "POSi")
+###############################################################################
+# Rate of breakpoints per clone per window within chromosomes !!! #############
 
 POSi_data_in <- POSi_data_in %>% mutate(bp = 1)
-LOH_mid_SW_coarse <- POSi_data_in %>% 
-  filter(!isTerm) %>%
+LOH_mid_SW <- POSi_data_in %>% 
+  mutate(POSi = est_mid) %>%
+  # filter(!isTerm) %>%
   # filter(!cross_h_term) %>% 
-  SliderCalc(data_col = "bp", index_col = "est_mid", 
-             window_size = 50000, slide_interval = 1000,
-             summary_stat = sum, factor_col = "Tx_name", chrom_win = T)
-LOH_mid_SW_coarse$Tx_name <- factor(LOH_mid_SW_coarse$Tx_name, levels = Tx_name_levels)
+  SliderCalc(data_col = "bp", index_col = "POSi", 
+             window_size = 50000, slide_interval = 50000,
+             summary_stat = sum, factor_col = "Tx_ID", chrom_win = T)
+LOH_mid_SW$Tx_ID <- factor(LOH_mid_SW$Tx_ID, levels = Tx_ID_levels)
 
-LOH_mid_SW_fine <- POSi_data_in %>% 
-  filter(!isTerm) %>%
-  # filter(!cross_h_term) %>% 
-  SliderCalc(data_col = "bp", index_col = "est_mid", 
-             window_size = 100000, slide_interval = 100,
-             summary_stat = sum, factor_col = "Tx_name", chrom_win = T)
-LOH_mid_SW_fine$Tx_name <- factor(LOH_mid_SW_fine$Tx_name, levels = Tx_name_levels)
 
 LOH_ID_SW <- POSi_data_in %>% 
-  filter(!isTerm) %>%
+  mutate(POSi = est_mid) %>%
+  # filter(!isTerm) %>%
   # filter(!cross_h_term) %>% 
-  SliderCalc(data_col = "bp", index_col = "est_mid", 
+  SliderCalc(data_col = "bp", index_col = "POSi", 
              window_size = 50000, slide_interval = 50000,
              summary_stat = sum, factor_col = "ID", chrom_win = T)
 
 LOH_ID_SW$Tx <- factor(substr(LOH_ID_SW$ID, 1, 1))
+LOH_ID_SW$Tx_ID <- Recode_Tx_ID(LOH_ID_SW$Tx)
 LOH_ID_SW$Tx_name <- Recode_Tx(LOH_ID_SW$Tx)
 LOH_ID_SW <- LOH_ID_SW %>% select(-Tx)
 
@@ -853,10 +1433,10 @@ fract_chrom_fun <- function(df, reps = 10000, alpha = 0.05) {
 LOH_SW_CIs <- fract_chrom_fun(LOH_ID_SW)
 iLOH_SW_CIs <- LOH_SW_CIs
 
-LOH_mid_SW <- LOH_mid_SW_coarse
 # colnames(LOH_SW_CIs)[grep("start", colnames(LOH_SW_CIs))] <- "start"
 LOH_CHROM_counts <- POSi_data_in %>% filter(GT != "0/1", !isTerm) %>% 
   group_by(Tx_name, CHROM) %>% summarize(tot_LOH = n())
+
 for(tx in Tx_name_levels) {
   # tx = "WT"
   # x = sub_counts$CHROM[1]
@@ -894,16 +1474,17 @@ LOH_mid_SW <- LOH_mid_SW %>%
          mid_POS_kb = (start_POS + 50000/2)/1000, mid_POSi_kb = (start_POSi + end_POSi)/2000)
 
 LOH_mid_SW$rom_CHROM <- factor(chrom_IDs$rom_CHROM[as.numeric(LOH_mid_SW$CHROM)], levels = roman_chr)
+centrom_df$rom_CHROM <- factor(chrom_IDs$rom_CHROM[as.numeric(centrom_df$CHROM)], levels = roman_chr)
 
 breakpoints_SW_plot <- LOH_mid_SW %>% 
   # filter(CHROM == "03") %>%
-  # filter(Tx_name == "Drive") %>%
+  # filter(Tx_ID == "D") %>%
   ggplot(aes(x = mid_POS_kb, y = chrom_fraction)) + 
   geom_vline(data = centrom_df, aes(xintercept = POS/1000), 
              linetype = 2,color = "blue4", size = 0.25) +
   # geom_ribbon(aes(ymin = CI_lo, ymax = CI_up, fill = Tx_name, color = Tx_name), 
   #             size = 0.05, alpha = 0.1) +
-  geom_line(aes(color = Tx_name)) +
+  geom_line(aes(color = Tx_ID)) +
   # geom_line(data = genome_scores_50kb, 
   #           aes(x = mid_POS/1000, y = -(score - min_score)/((max(score) - min_score)*3))) +
   # geom_line(aes(x = mid_POS_kb, y = log(rate, 10), color = Tx_name)) +
@@ -930,7 +1511,7 @@ breakpoints_SW_plot <- LOH_mid_SW %>%
   
 breakpoints_SW_plot
 
-ggsave(file.path(outIntDir, "iLOH_bp_SW50x1_plot.png"), 
+ggsave(file.path(outIntDir, "iLOH_bp_SW50x5_plot.png"), 
        plot = breakpoints_SW_plot,
        device = "png",
        width = 16, height = 9, 
@@ -947,6 +1528,257 @@ POSi_data_in %>%
   facet_wrap(~CHROM, ncol = 4, scales = "free_x") +
   theme(text = element_text(size = 14), legend.position = "bottom")
 
+###############################################################################
+# Breakpoint /bp/clone rate vs position #####
+LOH_BPrate_SW <- POSi_data_in %>%
+  mutate(bp = 1) %>%
+  # filter(!isTerm) %>%
+  # filter(!cross_h_term) %>% 
+  # mutate(POS = fract_dist) %>%
+  mutate(POSi = est_mid) %>%
+  SliderCalc(data_col = "bp", index_col = "POSi", 
+             window_size = 50000, slide_interval = 5000,
+             summary_stat = sum, factor_col = "Tx_ID", chrom_win = T)
+LOH_BPrate_SW$Tx_ID <- factor(LOH_BPrate_SW$Tx_ID, levels = Tx_ID_levels)
+
+LOH_BPrate_SW$start_POS <- LOH_BPrate_SW %>% ConvertPosIndicies(pos_col = "start", index_out = "POS")
+LOH_BPrate_SW$end_POS <- LOH_BPrate_SW %>% ConvertPosIndicies(pos_col = "end", index_out = "POS")
+LOH_BPrate_SW$mid_POS <- round((LOH_BPrate_SW$start_POS + LOH_BPrate_SW$end_POS)/2)
+LOH_BPrate_SW$length <- LOH_BPrate_SW$end - LOH_BPrate_SW$start + 1
+LOH_BPrate_SW$per_clone <- operate_by_factor_match(n_clones_LOH_xTx, 
+                                                 LOH_BPrate_SW[, c("Tx_ID", "bp")],
+                                                 .fun = function(x, y) y/x)
+LOH_BPrate_SW <- LOH_BPrate_SW %>% 
+  mutate(bp_rate = per_clone/length/n_gens)
+
+LOH_BPrate_SW <- LOH_BPrate_SW %>% 
+  mutate(mid_POSi = (start + end)/2,
+         mid_POS_kb = mid_POS/1000, mid_POSi_kb = (start + end)/2000)
+
+LOH_BPrate_SW$rom_CHROM <- factor(chrom_IDs$rom_CHROM[as.numeric(LOH_BPrate_SW$CHROM)], levels = roman_chr)
+
+max_rate <- max(LOH_BPrate_SW$bp_rate) * 1.2
+y_scale <- ceiling(log10(max_rate)) - 1
+# y_max <- 10^y_scale
+y_max <- 5*10^(y_scale-1)
+y_incr <- 2.5*10^(y_scale - 1)
+
+scale_bar <- data.frame(rom_CHROM = chrom_IDs$rom_CHROM, scale = 50, 
+                        .x = 0, .xend = 50, .y = 5E-9, .yend = 5E-9)
+
+BPrate_SW_plot <- LOH_BPrate_SW %>% 
+  # filter(length > 10000) %>%
+  # filter(bp < 10) %>%
+  filter(bp_rate < 5E-9) %>%
+  # filter(CHROM == "03") %>%
+  # filter(Tx_ID == "D") %>%
+  ggplot(aes(x = start_POS/1000, y = bp_rate)) + 
+  geom_segment(data = scale_bar, 
+               aes(x = .x, xend = .xend, y = .y, yend = .yend),
+               size = 1, color = "grey30") +
+  geom_vline(data = centrom_df, aes(xintercept = POS/1000), 
+             linetype = 2,color = "blue4", size = 0.25) +
+  # geom_ribbon(aes(ymin = CI_lo, ymax = CI_up, fill = Tx_ID, color = Tx_ID), 
+  #             size = 0.05, alpha = 0.1) +
+  geom_line(aes(color = Tx_ID), size = 1) +
+  # geom_line(data = genome_scores_50kb, 
+  #           aes(x = mid_POS/1000, y = -(score - min_score)/((max(score) - min_score)*3))) +
+  # geom_line(aes(x = mid_POS_kb, y = log(rate, 10), color = Tx_ID)) +
+  # geom_point(aes(color = Tx_ID), size = 0.5) +
+  # xlim(0, max(chrom_lengths_BY)) +
+  # xlab("Window Position (kb)") + xlim(0, NA) +
+  scale_x_continuous(name = "Window Position (kb)", 
+                     limits = c(0, NA)) +
+  scale_y_continuous(labels = format_sci_10,
+    # labels = c(0, format(seq(y_incr, y_max, y_incr), scientific = T)),
+                     # breaks = c(0, seq(y_incr, y_max, y_incr)),
+  name = "Breakpoint Rate /bp/gen") +
+  scale_color_manual(values = txPal, name = "Strain") + 
+  scale_fill_manual(values = txPal, name = "Strain") + 
+  facet_wrap(~rom_CHROM, ncol = 4, scales = "free_x") +
+  theme(legend.text = element_text(size = 16),
+        legend.title = element_text(size = 20),
+        strip.text = element_text(size = 20),
+        axis.title.y = element_text(size = 24, vjust = 2.5),
+        axis.title.x = element_text(size = 24, vjust = -1.7),
+        axis.text = element_text(size = 18),
+        # text = element_text(size = 18), 
+        plot.margin = margin(20, 20, 20, 20),
+        panel.grid.minor = element_blank(),
+        legend.position = c(0.96, 0.96),
+        legend.background = element_rect(fill = "white", color = "white"))
+
+BPrate_SW_plot
+
+ggsave(file.path(outIntDir, "BPrate_SW_SW50x5_plot_2022_05.png"), 
+       plot = BPrate_SW_plot,
+       device = "png",
+       width = 16, height = 9, 
+       units = "in",
+       dpi = 600)
+
+###############################################################################
+# Breakpoint rate as a function of marker density in 50kb windows #############
+LOH_BPrate_SW50_50 <- POSi_data_in %>%
+  mutate(bp = 1) %>%
+  # filter(!isTerm) %>%
+  # filter(!cross_h_term) %>% 
+  # mutate(POS = fract_dist) %>%
+  mutate(POSi = est_mid) %>%
+  SliderCalc(data_col = "bp", index_col = "POSi", 
+             window_size = 50000, slide_interval = 50000,
+             summary_stat = sum, factor_col = "Tx_ID", chrom_win = T)
+LOH_BPrate_SW50_50$Tx_ID <- factor(LOH_BPrate_SW50_50$Tx_ID, levels = Tx_ID_levels)
+
+LOH_BPrate_SW50_50$start_POS <- LOH_BPrate_SW50_50 %>% ConvertPosIndicies(pos_col = "start", index_out = "POS")
+LOH_BPrate_SW50_50$end_POS <- LOH_BPrate_SW50_50 %>% ConvertPosIndicies(pos_col = "end", index_out = "POS")
+LOH_BPrate_SW50_50$mid_POS <- round((LOH_BPrate_SW50_50$start_POS + LOH_BPrate_SW50_50$end_POS)/2)
+LOH_BPrate_SW50_50$length <- LOH_BPrate_SW50_50$end - LOH_BPrate_SW50_50$start + 1
+LOH_BPrate_SW50_50$per_clone <- operate_by_factor_match(n_clones_LOH_xTx, 
+                                                   LOH_BPrate_SW50_50[, c("Tx_ID", "bp")],
+                                                   .fun = function(x, y) y/x)
+LOH_BPrate_SW50_50 <- LOH_BPrate_SW50_50 %>% 
+  mutate(bp_rate = per_clone/length/n_gens)
+
+LOH_BPrate_SW50_50 <- LOH_BPrate_SW50_50 %>% 
+  mutate(mid_POSi = (start + end)/2,
+         mid_POS_kb = mid_POS/1000, mid_POSi_kb = (start + end)/2000)
+
+LOH_BPrate_SW50_50$rom_CHROM <- factor(chrom_IDs$rom_CHROM[as.numeric(LOH_BPrate_SW50_50$CHROM)], levels = roman_chr)
+
+LOH_BPrate_SW50_50$Tx_ID <- Recode_Tx_ID(LOH_BPrate_SW50_50$Tx_ID, "Tx_ID")
+
+marker_SW_Tx <- LOH_SNPs %>%
+  mutate(m = 1) %>%
+  SliderCalc(data_col = "m", index_col = "POSi", 
+             window_size = 50000, slide_interval = 50000,
+             summary_stat = sum, factor_col = "Tx_ID", chrom_win = T) 
+
+
+marker_SW_Tx <- marker_SW_Tx %>% mutate(start_POSi = round(start), end_POSi = round(end), mid_POSi = (start + end)/2) %>% select(!start:end)
+# s_POS <- marker_SW_Tx %>% ConvertPosIndicies(pos_col = "start_POSi", index_out = "POS", add_chroms = T)
+# names(s_POS)[1] <- "start_POS"
+# e_POS <- marker_SW_Tx %>% ConvertPosIndicies(pos_col = "end_POSi", index_out = "POS")
+# marker_SW_Tx <- data.frame(marker_SW_Tx, s_POS[c(2,1)], end_POS = e_POS)
+marker_SW_Tx$Tx_ID <- Recode_Tx_ID(marker_SW_Tx$Tx_ID, "Tx_ID")
+# marker_SW_Tx <- marker_SW_Tx %>% 
+#   mutate(mid_POS = start_POS + 50000/2, mid_POSi = (start_POSi + end_POSi)/2,
+#          mid_POS_kb = (start_POS + 50000/2)/1000, mid_POSi_kb = (start_POSi + end_POSi)/2000)
+# marker_SW_Tx$rom_CHROM <- factor(chrom_IDs$rom_CHROM[as.numeric(marker_SW_Tx$CHROM)], levels = roman_chr)
+
+marker_SW_Tx <- marker_SW_Tx %>%
+  mutate(pc_m = operate_by_factor_match(n_clones_LOH_xTx, 
+                                        data.frame(Tx_ID, m),
+                                        function(x, y) y/x))
+
+marker_SW_Tx <- merge(marker_SW_Tx[, c("Tx_ID", "mid_POSi", "m", "pc_m")], 
+                      LOH_BPrate_SW50_50, 
+                      by = c("Tx_ID", "mid_POSi")) %>%
+  arrange(Tx_ID, mid_POSi)
+
+marker_SW_Tx %>% ggplot() + geom_point(aes(x = pc_m, y = per_clone))
+
+lm_m <- lm(bp ~ log10(m), data = marker_SW_Tx %>% filter(m > 0))
+summary(lm_m)
+
+marker_SW_Tx %>% ggplot(aes(x = m)) + 
+  geom_histogram(aes(fill = Tx_ID), 
+                 position = position_dodge()) +
+  scale_fill_manual(values = txPal)
+
+marker_SW_Tx %>% ggplot(aes(x = log10(m), y = bp)) + 
+  geom_point(aes(color = Tx_ID)) +
+  geom_smooth(method = "lm") +
+  scale_x_continuous(limits = c(2, 5)) +
+  scale_color_manual(values = txPal)
+
+
+###########################################################################
+# Breakpoint distribution against fractional distance from centromere #####
+
+LOH_cent_SW <- POSi_data_in %>% 
+  mutate(bp = 1) %>%
+  # filter(!isTerm) %>%
+  # filter(!cross_h_term) %>% 
+  # mutate(POS = dist_cent_mid_abs) %>%
+  mutate(POSi = dist_cent_mid_abs) %>%
+  SliderCalc(data_col = "bp", index_col = "POSi", 
+             window_size = 50000, slide_interval = 50000,
+             summary_stat = sum, factor_col = "type", chrom_win = F)
+LOH_cent_SW$Tx_ID <- factor(LOH_cent_SW$Tx_ID, levels = Tx_ID_levels)
+
+LOH_cent_SW$start_POS <- LOH_cent_SW %>% ConvertPosIndicies(pos_col = "start", index_out = "POS")
+LOH_cent_SW$end_POS <- LOH_cent_SW %>% ConvertPosIndicies(pos_col = "end", index_out = "POS")
+LOH_cent_SW$mid_POS <- round((LOH_cent_SW$start_POS + LOH_cent_SW$end_POS)/2)
+LOH_cent_SW$length <- LOH_cent_SW$end - LOH_cent_SW$start
+LOH_cent_SW$per_clone <- operate_by_factor_match(n_clones_LOH_xTx, 
+                                                 LOH_cent_SW[, c("Tx_ID", "bp")],
+                                                 .fun = function(x, y) y/x)
+
+# iLOH_CIs <- data.frame(NULL)
+# for(tx in Tx_ID_levels) {
+#   # tx <- "W"
+#   tx_n_LOH <- LOH_cent_SW %>% filter(Tx_ID == tx) %>% pull(n_iLOH)
+#   
+#   tx_boot <- boot(tx_n_LOH, statistic = mean.fun, R = 10000)
+#   tx_boot_CI <- boot.ci(boot.out = tx_boot, conf = 0.95,
+#                         type = "basic")$basic[4:5]
+#   tx_CI <- data.frame(Tx_ID = tx, low95CI = tx_boot_CI[1], up95CI = tx_boot_CI[2])
+#   iLOH_CIs <- rbind(iLOH_CIs, tx_CI)
+# }
+# LOH_cent_SW <- merge(LOH_cent_SW, iLOH_CIs, by = "Tx_ID", all = T)
+
+# df to normalize number of sites at each position sampled
+left_arm <- centrom_df$POS
+right_arm <- chrom_lengths_BY_df$chrom_length - centrom_df$POS
+chrom_arms_df <- data.frame(POS = sort(c(left_arm, right_arm), decreasing = T), i = 1)
+chrom_arms_df$n_sampled <- cumsum(chrom_arms_df$i)
+LOH_cent_SW$bp_adj <- LOH_cent_SW$bp
+for(i in 1:(nrow(chrom_arms_df) - 1)) {
+  # i = 1
+  i_adj <- LOH_cent_SW$mid_POS <= chrom_arms_df$POS[i]
+  # LOH_cent_SW$n_sampled[i] <- LOH_cent_SW$bp[i]/chrom_arms_df$n_sampled[i]
+  LOH_cent_SW$bp_adj[i_adj] <- LOH_cent_SW$bp[i_adj]/chrom_arms_df$n_sampled[i]
+}
+
+
+# Normalize to the number of bp on chromosome
+LOH_cent_SW %>% 
+  # filter(per_clone < 0.2) %>%
+  ggplot(aes(x = start, y = bp_adj, color = type, group = type)) +
+  geom_line() +
+  geom_point(size = 0.25) + 
+  # facet_wrap(~CHROM, ncol = 4, scales = "free") +
+  # ylim(0, 0.0006) +
+  scale_color_manual(values = txPal)
+
+POSi_data_in %>% 
+  ggplot(aes(x = dist_cent_mid, fill = type)) + 
+  geom_histogram(binwidth = 50000, position = "stack") + 
+  facet_wrap(~CHROM, ncol = 4, scales = "free_x")
+
+POSi_data_in %>% 
+  # filter(CHROM != "03", CHROM != "09") %>%
+  ggplot(aes(x = fract_dist, fill = CHROM)) + 
+  geom_histogram(binwidth = 0.05, position = "stack") + 
+  facet_wrap(~type, ncol = 1) +
+  scale_fill_manual(values = lineagePal)
+
+POSi_data_in %>%
+  group_by(CHROM, type) %>%
+  summarize(mean_cent = mean(dist_cent_mid_abs),
+            mean_term = mean(dist_term)) %>%
+  as.data.frame()
+
+# POSi_data_in %>% filter(CHROM == "09", est_mid > 5820000)
+# POSi_data_in %>% filter(CHROM == "09", est_end_POS > 400000) %>% mutate(isTerm, in_POS = 439888 - est_end_POS)
+# POSi_data_wHet %>% filter(CHROM == "09", est_end_POS > 400000) %>% head()
+# 
+# POSi_data_wHet %>% filter(CHROM == "09", est_end > 5760000) %>% head()
+# POSi_data_wHet %>% filter(CHROM == "09", ID == "F_A02")
+
+###############################################################################
+# Breakpoint rate vs gRNA similarity in Drive !!! #############################
 DrivevsWT_breaks <- LOH_mid_SW %>% 
   select(Tx_name, CHROM, rate, mid_POS_kb, mid_POSi_kb) %>%
   filter(Tx_name != "Cas9") %>% 

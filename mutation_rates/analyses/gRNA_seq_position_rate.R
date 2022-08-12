@@ -1,5 +1,8 @@
 # Determine whether there is enrichement for the gRNA sequence in the genome
 
+###############################################################################
+# Required functions and parameters ####
+
 idx <- 1:length(gRNA_seq_split)
 idx_w <- 1.46 + -0.112 * idx + 2.34E-03 * idx^2
 idx_w <- ifelse(idx_w >1, 1, idx_w) - 1
@@ -8,7 +11,7 @@ get_score <- function(seq_in, gRNA_seq = gRNA_seq_split,
   # linear model with position weighting 0.125 - 1 5'-3'
   # and weighted mismatch runs a(sum(i:j)) + b(length)
   # seq_in <- gRNA_seq
-  # seq_in <- seqs[2,]
+  # seq_in <- chr_seq_v[27224:27243]
   # seq_in <- c(gRNA_seq[11:20], gRNA_seq[11:20])
   # seq_in <- c(gRNA_seq[1:6], gRNA_seq[3:7], gRNA_seq[12:20])
   # p = 1.5061 * exp(-0.1137 * i)
@@ -32,9 +35,13 @@ get_score <- function(seq_in, gRNA_seq = gRNA_seq_split,
 }
 
 
-BY_seq_stack <- stack(BY_seq)
-count(BY_seq_v$NC_001133.9 %>% unclass())
-nuc_counts <- lapply(BY_seq_v, function(x) seqinr::count(x, wordsize = 1))
+###############################################################################
+# Prepare reference and calculate nucleotide frequencies ####
+# seq_in <- BY4742_seq
+# seq_v_in <- BY4742_seq_v
+# seq_v_in <- RM_seq_v
+
+nuc_counts <- lapply(seq_v_in, function(x) seqinr::count(x, wordsize = 1))
 nuc_df <- data.frame(a = 0, c = 0, g = 0, t = 0)
 for(chr in 1:(length(nuc_counts) - 1)) {
   nuc_df <- nuc_counts[[chr]] + nuc_df
@@ -44,14 +51,16 @@ nuc_freq_df <- t(nuc_df) %>% as.data.frame() %>% rownames_to_column()
 names(nuc_freq_df) <- c("nuc", "count")
 nuc_freq_df <- nuc_freq_df %>% mutate(freq = count/sum(count))
 
+###############################################################################
+# Calculate gRNA similarity scores for reference sequence ####
 
 pams <- list("ngg" = "gg", "nag" = "ag", "ngg_rev" = "cc", "nag_rev" = "ct")
 genome_scores <- data.frame(NULL)
 for(chr in 1:16) {
   # chr <- 12
-  chr_seq <- as.character(BY_seq[chr])
+  chr_seq <- as.character(seq_in[chr])
   # str_locate(chr_seq, gRNA_seq)
-  chr_seq_v <- BY_seq_v[[chr]]
+  chr_seq_v <- seq_v_in[[chr]]
   chrom_pams <- lapply(pams, function(x) str_locate_all(chr_seq, x)[[1]][, 2])
   chrom_pams <- lapply(chrom_pams, function(x) x[x > 22 & x < (chrom_lengths_BY[chr] - 22)])
   chrom_scores <- list()
@@ -69,8 +78,8 @@ for(chr in 1:16) {
     # indicies for rev comp target sequence are 1bp and 20bp downstream
     # also, the seq and gRNA must be reversed to index correctly in get_score()
     align_scores <- sapply(chrom_pams[[p]], 
-                           function(x) get_score(rev(chr_seq_v[(x + 1):(x + 20)]),
-                                                 gRNA_seq = rev(gRNA_seq_comp_split)))
+                           function(x) get_score(chr_seq_v[(x + 2):(x + 21)],
+                                                 gRNA_seq = rev(comp(gRNA_seq_comp_split))))
     chrom_scores[[p]] <- align_scores
   }
   names(chrom_scores) <- names(pams)
@@ -81,15 +90,220 @@ for(chr in 1:16) {
   genome_scores <- rbind(genome_scores, chrom_scores_df)
 }
 
-cs <- colsplit(genome_scores$pam, pattern = "_", names = c("pam", "dir"))
-genome_scores <- genome_scores %>% select(-pam) %>% mutate(pam = cs$pam, dir = cs$dir)
-genome_scores$dir[genome_scores$dir == ""] <- "fwd"
-genome_scores$exp_activity <- ifelse(1 + genome_scores$score < 0, 0, 1 + genome_scores$score)
-genome_scores$exp_activity <- ifelse(genome_scores$pam == "ngg", genome_scores$exp_activity, genome_scores$exp_activity * 0.5)
+genome_scores <- data.frame(NULL)
+  for(chr in 1:16) {
+    # chr <- 4
+    chr_seq <- as.character(BY4742_seq[chr])
+    # str_locate(chr_seq, gRNA_seq)
+    chr_seq_v <- BY4742_seq_v[[chr]]
+    chrom_pams <- lapply(pams, function(x) str_locate_all(chr_seq, x)[[1]][, 2])
+    chrom_pams <- lapply(chrom_pams, function(x) x[x > 27 & x < (chrom_lengths_BY[chr] - 27)])
+    chrom_scores <- list()
+    for(p in 1:2) {
+      # p <- 1
+      # str_locate_all returns the index of the end of the PAM, 
+      # indicies for target sequence are 3bp and 22bp upstream
+      align_scores <- lapply(chrom_pams[[p]], 
+                             function(x) get_score_NW(patt = gRNA_seq_split,
+                                                      subj = chr_seq_v[(x - 27):(x - 3)],
+                                                      params = NW_params)) %>% 
+        bind_rows(.id = "pam") %>% as.data.frame()
+      chrom_scores[[p]] <- align_scores
+    }
+    for(p in 3:4) {
+      # p <- 3
+      # str_locate_all returns the index of the end of the PAM in the 
+      # forward direction, which is the first position of the rev comp PAM
+      # indicies for rev comp target sequence are 1bp and 20bp downstream
+      # also, the seq and gRNA must be reversed to index correctly in get_score()
+      align_scores <- lapply(chrom_pams[[p]], 
+                             function(x) get_score_NW(patt = rev(comp(gRNA_seq_split)),
+                                                      subj = chr_seq_v[(x + 2):(x + 26)],
+                                                      reverse = F,
+                                                      params = NW_params)) %>% 
+        bind_rows(.id = "pam") %>% as.data.frame()
+      chrom_scores[[p]] <- align_scores
+    }
+    names(chrom_scores) <- names(pams)
+    chrom_scores_df <- bind_rows(chrom_scores, .id = "pam")
+    # colnames(chrom_scores_df) <- c("score", "pam")
+    chrom_scores_df$POS <- unlist(chrom_pams,  use.names = FALSE)
+    chrom_scores_df$CHROM <- chrom_bound_BY$CHROM[chr]
+    chrom_scores_df <- chrom_scores_df %>% filter(score >= -5)
+    genome_scores <- rbind(genome_scores, chrom_scores_df)
+}
 
-genome_scores %>% ggplot() + geom_histogram(aes(x = score))
+chr_seq_v[27224:27243]
+gRNA_seq_comp_split
+chr_seq_v[1028670:1028689]
+gRNA_seq_split
 
-# distribution of scores for random sequences
+# genome_scores_BY <- genome_scores
+# genome_scores_RM <- genome_scores
+genome_scores %>% ggplot() + geom_histogram(aes(x = score), binwidth = 0.1)
+
+genome_scores %>% filter(score > -1) %>% ggplot() + geom_freqpoly(aes(x = score), binwidth = 0.05)
+genome_scores %>% filter(score > -1) %>% arrange(desc(score))
+
+genome_scores_RM$POSi <- 0
+genome_scores_RM_lift <- RMxBY_liftover(genome_scores_RM)
+
+genome_scores_all <- merge(genome_scores_BY, 
+                           genome_scores_RM_lift, 
+                           by = c("CHROM", "POS", "pam"), 
+                           suffixes = c("_BY", "_RM"), 
+                           all = T)
+
+genome_scores_all$score_RM[is.na(genome_scores_all$score_RM)] <-
+  genome_scores_all$score_BY[is.na(genome_scores_all$score_RM)]
+genome_scores_all$score_BY[is.na(genome_scores_all$score_BY)] <-
+  genome_scores_all$score_RM[is.na(genome_scores_all$score_BY)]
+
+genome_scores_all$score_max <- apply(genome_scores_all[, c("score_BY", "score_RM")], 
+                                     MARGIN = 1, 
+                                     function(x) max(x))
+
+# cs <- colsplit(genome_scores$pam, pattern = "_", names = c("pam", "dir"))
+# genome_scores <- genome_scores %>% select(-pam) %>% mutate(pam = cs$pam, dir = cs$dir)
+# genome_scores$dir[genome_scores$dir == ""] <- "fwd"
+# genome_scores$exp_activity <- ifelse(1 + genome_scores$score < 0, 0, 1 + genome_scores$score)
+# genome_scores$exp_activity <- ifelse(genome_scores$pam == "ngg", genome_scores$exp_activity, genome_scores$exp_activity * 0.5)
+
+genome_scores_all %>% ggplot() + geom_histogram(aes(x = score_BY))
+genome_scores_all %>% ggplot() + geom_histogram(aes(x = score_RM))
+genome_scores_all %>% ggplot() + geom_histogram(aes(x = score_max))
+
+###############################################################################
+# Test whether the similarity score is higher at D hotspots ####
+
+i_hs1 <- genome_scores_all$CHROM == "05" & 
+  genome_scores_all$POS >= 180000 & 
+  genome_scores_all$POS <= 271000
+genome_scores_all$hs1 <- ifelse(i_hs1, "y", "n")
+genome_scores_all$hs1 <- factor(genome_scores_all$hs1)
+
+i_hs2 <- genome_scores_all$CHROM == "02" & 
+  genome_scores_all$POS >= 325000 & 
+  genome_scores_all$POS <= 365000
+genome_scores_all$hs2 <- ifelse(i_hs2, "y", "n")
+genome_scores_all$hs2 <- factor(genome_scores_all$hs2)
+
+group_SW_hotspots <- function(x, gap = 100000) {
+  # x <- PM_BPrate_SW %>% filter(pm > 5, Tx_ID == "D") %>% pull(start)
+  d_x <- x - c(x[1], x[1:(length(x) - 1)])
+  i_new <- c(0, which(d_x > gap), length(x))
+  g <- 1
+  group <- rep(0, length(x))
+  for(i in 2:length(i_new)) {
+    # i <- 8
+    group[(i_new[i - 1]):i_new[i]] <- g
+    g <- g + 1
+  }
+  return(group)
+}
+
+pm_hs_POSi <- PM_BPrate_SW %>% 
+  filter(pm > 5, Tx_ID == "D") %>% 
+  mutate(hs = group_SW_hotspots(start)) %>%
+  group_by(hs) %>%
+  summarize(hs_start = min(start), hs_end = max(end))
+
+genome_scores_all$hs_PM <- "n"
+for(i in 1:nrow(pm_hs_POSi)) {
+  i_hs <- genome_scores_all$POSi > pm_hs_POSi$hs_start[i] &
+    genome_scores_all$POSi < pm_hs_POSi$hs_end[i]
+  genome_scores_all$hs_PM[i_hs] <- "y"
+}
+
+genome_scores_all %>% ggplot() + geom_histogram(aes(x = score_max)) + facet_grid(hs2~., scales = "free_y")
+genome_scores_all %>% filter(score_max < 0) %>% group_by(hs2) %>% summarize(m = max(score_max, na.rm = T))
+
+hs1_perm_mean <- perm_test(genome_scores_all, 
+                           cat_var = "hs1", cat_names = c("n", "y"), 
+                           response_var = "score_max", 
+                           test_stat = mean)
+
+hs1_perm_max <- perm_test(genome_scores_all, 
+                          cat_var = "hs1", cat_names = c("n", "y"), 
+                          response_var = "score_max", 
+                          test_stat = max)
+
+hs2_perm_mean <- perm_test(genome_scores_all, 
+                           cat_var = "hs2", cat_names = c("n", "y"), 
+                           response_var = "score_max", 
+                           test_stat = mean)
+
+hs2_perm_max <- perm_test(genome_scores_all, 
+                          cat_var = "hs2", cat_names = c("n", "y"), 
+                          response_var = "score_max", 
+                          test_stat = max)
+
+hs_PM_perm_mean <- perm_test(genome_scores_all, 
+                           cat_var = "hs_PM", cat_names = c("n", "y"), 
+                           response_var = "score_max", 
+                           test_stat = mean, n_perms = 100)
+
+hs_PM_perm_max <- perm_test(genome_scores_all, 
+                          cat_var = "hs_PM", cat_names = c("n", "y"), 
+                          response_var = "score_max", 
+                          test_stat = max, n_perms = 100)
+
+###############################################################################
+# Test whether there is a higher density of PAMs at C hotspots ####
+min_score_g <- -10
+genome_scores_all$CHROM <- factor(genome_scores$CHROM)
+genome_scores_all$POSi <- genome_scores %>% ConvertPosIndicies(pos_col = "POS", index_out = "POSi")
+
+pam_density_50kb <- genome_scores_all %>% 
+  filter(score_max >= min_score_g) %>%
+  mutate(p = 1) %>%
+  SliderCalc(data_col = "p", index_col = "POSi", window_size = 50000, 
+             slide_interval = 5000, chrom_win = T, summary_stat = sum)
+
+# genome_scores_50kb$start_POS <- genome_scores_50kb %>% ConvertPosIndicies(pos_col = "start", index_out = "POS", add_chroms = F)
+# genome_scores_50kb <- cbind(genome_scores_50kb, start_POS = genome_scores_POS$POS, CHROM = genome_scores_POS$CHROM)
+# genome_scores_50kb$end_POS <- genome_scores_50kb %>% ConvertPosIndicies(pos_col = "end", index_out = "POS")
+# genome_scores_50kb <- genome_scores_50kb %>% mutate(mid_POS = round((start_POS + end_POS)/2))
+
+LOH_BPrate_SW_C <- LOH_BPrate_SW %>% 
+  filter(Tx_ID == "C")
+LOH_BPrate_SW_C <- PM_BPrate_SW %>% 
+  mutate(bp = pm) %>%
+  # filter(pm > 5) %>%
+  filter(Tx_ID == "C")
+
+LOH_BPrate_SW_C <- merge(LOH_BPrate_SW_C, pam_density_50kb[, c("start", "p")], by = "start", all = T)
+
+LOH_BPrate_SW_C %>% 
+  # filter(CHROM == "07") %>%
+  ggplot() + geom_point(aes(x = bp, y = p)) + facet_wrap(~CHROM, ncol = 4)
+
+LOH_BPrate_SW_C %>% 
+  mutate(bp = pm) %>%
+  # filter(CHROM != "09") %>% 
+  ggplot() + geom_histogram(aes(x = bp))
+
+LOH_BPrate_SW_C %>% filter(CHROM != "09") %>% filter(bp > 5)
+
+i_C_hs <- LOH_BPrate_SW_C$bp > 5
+i_C_hs <- LOH_BPrate_SW_C$pm > 5
+LOH_BPrate_SW_C$hs_C <- ifelse(i_C_hs, "y", "n")
+
+# i_C_hs <- LOH_BPrate_SW_C$CHROM != "09" & LOH_BPrate_SW_C$bp > 5
+# LOH_BPrate_SW_C$hs_C <- ifelse(i_C_hs, "y", "n")
+
+hs2_perm_mean <- perm_test(LOH_BPrate_SW_C, 
+                           cat_var = "hs_C", cat_names = c("n", "y"), 
+                           response_var = "p", 
+                           test_stat = mean)
+
+hs2_perm_max <- perm_test(LOH_BPrate_SW_C, 
+                           cat_var = "hs_C", cat_names = c("n", "y"), 
+                           response_var = "p", 
+                           test_stat = max)
+
+###############################################################################
+# Distribution of scores for random sequences ####
 nucs <- c("a", "c", "g", "t")
 n_seqs <- nrow(genome_scores)
 set.seed(313)

@@ -13,6 +13,81 @@ final_dubHet_rate <- SNPs_merge_finalGT %>%
 
 load(file = SNPs_merge_raw_filename)
 load(file = LOH_SNPs_file)
+
+# Create SNPs_merge_finalGT
+SNPs_merge_finalGT <- SNPs_merge %>% 
+  filter(!(ID %in% c(contaminated, bad_seq, whGnm_aneu_ID) | 
+             Line %in% whGnm_aneu_line)) %>%
+  GenotypeFromGQ(., baseThrsh = 50, naThrsh = 100, diffThrsh = 30) %>%
+  filter(finalGT != "./.", finalGQ >= 50)
+
+SNPs_merge_finalGT <- SNPs_merge_finalGT %>%
+  mutate(Sum_DP_final = Ref_DP_final + Alt_DP_final)
+
+# Fill in information, standardize column names, drop levels, 
+# find annotated SNPs from RMxBY tables
+SNPs_merge_finalGT <- SNPs_merge_finalGT %>% FormatSNPsMerge()
+
+# Remove all calls with insufficient support
+# Het - at least three reads for each allele
+# Hom - at least three reads supporting allele
+SNPs_merge_finalGT <- SNPs_merge_finalGT %>%
+  filter(!(GT == "0/1" & (Ref_DP_final <= 3 | Alt_DP_final <= 3)),
+         !(GT == "1/1" & Alt_DP_final <= 3),
+         !(GT == "0/0" & Ref_DP_final <= 3)) 
+
+
+# Mark heterozygous calls that have excessive allele imbalance
+SNPs_merge_finalGT$Cut <- MarkDubiousHets(SNPs_merge_finalGT, .alpha = 0.05)
+
+dubHet_rate <- SNPs_merge_finalGT %>% 
+  filter(GT == "0/1") %>% 
+  count(Cut) %>% 
+  pivot_wider(names_from = "Cut", values_from = "n", names_prefix = "Cut_") %>%
+  mutate(f_Cut = Cut_TRUE/(Cut_TRUE + Cut_FALSE))
+
+# Impute genotypes of missing ancestors from end-point clone data
+SNPs_merge_finalGT <- SNPs_merge_finalGT %>% 
+  InferMissingFounders(missing_founders = noAncestor)
+SNPs_merge_finalGT <- SNPs_merge_finalGT %>% FormatSNPsMerge()
+
+# Count each genotype for each site across founder clones and 
+# end-point clones independently
+sitewise_GTs <- SNPs_merge_finalGT %>% 
+  filter(!Cut) %>%
+  site_genotype_stats(group = "all") %>%
+  mutate(nHom_anc = nRef_anc + nRef_anc)
+
+all_error_rates <- SNPs_merge_finalGT %>% 
+  filter(!Line %in% noAncestor, !Cut) %>%
+  filter(GQ >= 50) %>%
+  errorFromPhylo(flsHom_support = 4, flsHet_support = 6, output_POSi = F)
+
+F_Hom_rate <- sum(all_error_rates$n_F_Hom)/sum(all_error_rates$n_Het_q)
+F_Het_rate <- sum(all_error_rates$n_F_Het)/sum(all_error_rates$n_Hom_q)
+F_BY_rate <- sum(all_error_rates$nRef)/sum(all_error_rates$n_Het_q)
+F_RM_rate <- sum(all_error_rates$nAlt)/sum(all_error_rates$n_Het_q)
+
+clean_markers <- sitewise_GTs %>% 
+  filter(nHom_anc <= 1, nHet_anc >= 4) %>% pull(POSi)
+
+final_cols <- c("CHROM", "POS", "POSi", "Tx_name", "Tx_ID", "Tx", "Line", "Rep", "ID", 
+                "GT", "GQ", "Ref_DP_final", "Alt_DP_final", "Sum_DP_final",
+                "existing_SNP", "Cut")
+
+# For each founder group, collect calls in all clones that are Het in the founder
+LOH_SNPs <- SNPs_merge_finalGT %>% 
+  ungroup() %>%
+  filter(!Cut) %>% 
+  select(all_of(final_cols)) %>% 
+  anc_GT_fltr(anc_GT = "0/1")
+
+
+LOH_SNPs$Line <- droplevels(LOH_SNPs$Line)
+LOH_SNPs$ID <- droplevels(LOH_SNPs$ID)
+
+
+###############################################################################
 # Create analog of SNPs_merge_finalGT with only BY call data
 SNPs_merge_BY <- SNPs_merge %>% 
   filter(!(ID %in% c(contaminated, bad_seq, whGnm_aneu_ID) | 
@@ -26,7 +101,6 @@ SNPs_merge_BY <- SNPs_merge %>%
 colnames(SNPs_merge_BY) <- gsub("_BYcall", "_final", colnames(SNPs_merge_BY))
 colnames(SNPs_merge_BY) <- gsub("GT_final", "GT", colnames(SNPs_merge_BY))
 colnames(SNPs_merge_BY) <- gsub("GQ_final", "GQ", colnames(SNPs_merge_BY))
-
 
 # Fill in information, standardize column names, drop levels, 
 # find annotated SNPs from RMxBY tables
@@ -60,10 +134,10 @@ SNPs_merge_BY <- SNPs_merge_BY %>% FormatSNPsMerge()
 
 # Count each genotype for each site across founder clones and 
 # end-point clones independently
-sitewise_GTs_BYcall <- SNPs_merge_BY %>% 
-  filter(!Cut) %>%
-  site_genotype_stats(group = "all") %>%
-  mutate(nHom_anc = nRef_anc + nRef_anc)
+# sitewise_GTs_BYcall <- SNPs_merge_BY %>% 
+#   filter(!Cut) %>%
+#   site_genotype_stats(group = "all") %>%
+#   mutate(nHom_anc = nRef_anc + nRef_anc)
 
 all_error_rates_BYcall <- SNPs_merge_BY %>% 
   filter(!Line %in% noAncestor, !Cut) %>%
@@ -74,7 +148,7 @@ F_Het_rate_BYcall <- sum(all_error_rates_BYcall$n_F_Het)/sum(all_error_rates_BYc
 F_BY_rate_BYcall <- sum(all_error_rates_BYcall$nRef)/sum(all_error_rates_BYcall$n_Het_q)
 F_RM_rate_BYcall <- sum(all_error_rates_BYcall$nAlt)/sum(all_error_rates_BYcall$n_Het_q)
 
-clean_markers <- sitewise_GTs_BYcall %>% 
+clean_markers_BYcall <- sitewise_GTs_BYcall %>% 
   filter(nHom_anc <= 1, nHet_anc >= 4) %>% pull(POSi)
 
 final_cols <- c("CHROM", "POS", "POSi", "Tx_name", "Tx_ID", "Tx", "Line", "Rep", "ID", 
@@ -95,7 +169,7 @@ LOH_SNPs_BYcall$ID <- droplevels(LOH_SNPs_BYcall$ID)
 # Get GT tract boundaries
 all_GT_bounds_BYcall <- LOH_SNPs_BYcall %>% 
   filter(Rep != "00") %>% 
-  filter(POSi %in% clean_markers) %>%
+  filter(POSi %in% clean_markers_BYcall) %>%
   EstDataBounds(., rm_noData = T)
 
 # Mark LOH regions belonging to complex events
@@ -162,7 +236,7 @@ SNPs_merge_RM <- SNPs_merge_RM %>%
 SNPs_merge_RM <- SNPs_merge_RM %>% FormatSNPsMerge()
 
 # SNPs_merge_RM %>% distinct(ID, .keep_all = T) %>% count(Line)
-save(SNPs_merge_RM, file = "./data/int/SNPs_merge_RMcall_2022_03.RData")
+# save(SNPs_merge_RM, file = "./data/int/SNPs_merge_RMcall_2022_03.RData")
 
 RMcall_dubHet_rate <- SNPs_merge_RM %>% 
   filter(GT == "0/1") %>% 
@@ -172,15 +246,14 @@ RMcall_dubHet_rate <- SNPs_merge_RM %>%
 
 # Count each genotype for each site across founder clones and 
 # end-point clones independently
-sitewise_GTs_RMcall <- SNPs_merge_RM %>% 
-  filter(!Cut) %>%
-  site_genotype_stats(group = "all") %>%
-  mutate(nHom_anc = nRef_anc + nRef_anc)
+# sitewise_GTs_RMcall <- SNPs_merge_RM %>% 
+#   filter(!Cut) %>%
+#   site_genotype_stats(group = "all") %>%
+#   mutate(nHom_anc = nRef_anc + nRef_anc)
 
 all_error_rates_RMcall <- SNPs_merge_RM %>% 
   filter(!Line %in% noAncestor, !Cut) %>%
   errorFromPhylo(flsHom_support = 4, flsHet_support = 6, output_POSi = F)
-
 
 F_Hom_rate_RMcall <- sum(all_error_rates_RMcall$n_F_Hom)/sum(all_error_rates_RMcall$n_Het_q)
 F_Het_rate_RMcall <- sum(all_error_rates_RMcall$n_F_Het)/sum(all_error_rates_RMcall$n_Hom_q)
@@ -367,6 +440,67 @@ DP_bias_all %>%
 #   ggplot() + 
 #   geom_jitter(aes(x = f_BY_DP, y = f_BY_LOH, color = callset), width = 0.01, height = 0.02)
 
+###############################################################################
+# Supp Fig. Error rates for calling against each reference ####
+callset_levels <- c("BY", "RM", "Final")
+all_error_rates_BYcall$call_set <- callset_levels[1]
+all_error_rates_RMcall$call_set <- callset_levels[2]
+all_error_rates$call_set <- callset_levels[3]
+
+error_rates_df <- rbind(all_error_rates_BYcall, 
+                        all_error_rates_RMcall,
+                        all_error_rates)
+error_rates_df$call_set <- factor(error_rates_df$call_set, callset_levels)
+error_rates_df <- error_rates_df %>% 
+  select(call_set, Line, Ref_rate, Alt_rate, F_Hom_rate, F_Het_rate) %>%
+  pivot_longer(cols = contains("rate"), names_to = "err_type", values_to = "rate")
+error_rates_df$err_type <- factor(error_rates_df$err_type, 
+                              levels = c("Ref_rate", "Alt_rate",
+                                         "F_Hom_rate", "F_Het_rate"))
+error_rates_df$err_type <- factor(error_rates_df$err_type, labels = c("BY", "RM", "Total", "Het"))
+
+
+error_rates_aov <- aov(rate ~ err_type + call_set, data = error_rates_df %>% filter(err_type != "Total"))
+summary(error_rates_aov)
+
+error_rates_df %>% 
+  filter(err_type == "Total", call_set != "BY") %>% 
+  pivot_wider(names_from = call_set, values_from = rate) %>%
+  summarise(t = t.test(Final, RM)$p.value)
+
+Hom_error_rates_df <- error_rates_df %>% 
+  filter(err_type != "Het")
+
+x_gap <- 0.2
+Hom_error_rates_plot <- Hom_error_rates_df %>%
+  mutate(grp_1 = paste0(call_set, "_", err_type),
+         grp_2 = paste0(Line, "_", err_type)) %>%
+  ggplot(aes(x = as.numeric(call_set) + as.numeric(err_type) * x_gap, y = rate, color = err_type)) + 
+  geom_boxplot(aes(group = grp_1), outlier.alpha = 0) +
+  geom_jitter(height = 0, width = 0.03) +
+  # geom_line(aes(group = grp_2), alpha = rep(c(0, 0, 1), each = 48)) +
+  scale_color_manual(values = allelePal[c(1, 3, 2)], name = "Erroneous call") +
+  scale_x_continuous(breaks = 1:3 + 2 * x_gap, labels = c("BY", "RM", "Final"),
+                     name = "Call set") +
+  scale_y_continuous(labels = format_sci_10,
+                     name = "Erroneous calls per marker") +
+  theme(panel.grid.major.x = element_blank(),
+        panel.grid.minor.x = element_blank(),
+        panel.grid.minor.y = element_blank(),
+        legend.background = element_rect(fill = "white", color = "white"),
+        text = element_text(size = 28),
+        legend.position = c(0.85, 0.85))
+
+Hom_error_rates_plot
+
+ggsave(file.path(outIntDir, "Hom_error_rates_df_2022_05.png"), 
+       plot = Hom_error_rates_plot,
+       device = "png",
+       width = 11, height = 8.5, 
+       units = "in",
+       dpi = 600)
+
+###############################################################################
 # Final Figure ################################################################
 
 RMvsBY_DP_rstest <- wilcox.test(f_BY ~ callset, data = DP_bias_all %>% filter(callset != "Final"))

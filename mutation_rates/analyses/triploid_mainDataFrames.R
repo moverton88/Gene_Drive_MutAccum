@@ -3,7 +3,7 @@
 
 triploid_SNPs_merge <- SNPs_merge %>% filter(Line %in% whGnm_aneu_line)
 # save(triploid_SNPs_merge, file = triploid_merge_raw_filename)
-# load(file = triploid_SNPs_merge)
+# load(file = triploid_merge_raw_filename)
 
 triploid_merge_finalGT <- triploid_SNPs_merge %>% 
   filter(!(ID %in% c(contaminated, bad_seq))) %>%
@@ -71,8 +71,8 @@ triploid_all_error_rates <- triploid_merge_finalGT %>%
          QUAL_BYcall >= 1000, QUAL_RMcall >= 1000, !Cut) %>%
   errorFromPhylo(flsHom_support = 2, flsHet_support = 4, output_POSi = F)
 
-triploid_merge_finalGT <- triploid_merge_finalGT %>% 
-  filter(!POSi %in% high_error_POSi)
+# triploid_merge_finalGT <- triploid_merge_finalGT %>% 
+#   filter(!POSi %in% high_error_POSi)
 
 # Identify and count markers that are heterozygous across nearly all founders
 triploid_n_markers <- sitewise_GTs %>% 
@@ -92,7 +92,8 @@ final_cols <- c("CHROM", "POS", "POSi", "Tx_name", "Tx_ID", "Tx", "Line", "Rep",
 # For each founder group, collect calls in all clones that are Het in the founder
 triploid_LOH_SNPs <- triploid_merge_finalGT %>% 
   ungroup() %>%
-  filter(QUAL_BYcall >= 1000, QUAL_RMcall >= 1000, !Cut) %>% 
+  filter(QUAL_BYcall >= 1000, QUAL_RMcall >= 1000, 
+         !Cut, !POSi %in% high_error_POSi) %>% 
   select(all_of(final_cols)) %>% 
   anc_GT_fltr(anc_GT = "0/1")
 triploid_LOH_SNPs$Line <- droplevels(triploid_LOH_SNPs$Line)
@@ -109,7 +110,8 @@ triploid_denovo_rows <- !triploid_SNP_rows %in% triploid_LOH_rows
 triploid_denovo_SNPs <- triploid_merge_finalGT %>% 
   ungroup() %>%
   filter(triploid_denovo_rows, !existing_SNP,
-         QUAL_BYcall >= 100, QUAL_RMcall >= 100, !Cut) %>% 
+         QUAL_BYcall >= 100, QUAL_RMcall >= 100, !Cut, 
+         !POSi %in% high_error_POSi) %>% 
   select(all_of(final_cols)) 
 
 # Write table files
@@ -117,7 +119,8 @@ triploid_denovo_SNPs <- triploid_merge_finalGT %>%
 # save(triploid_LOH_SNPs, file = triploid_LOH_SNPs_file)
 # save(triploid_denovo_SNPs, file = triploid_denovo_SNPs_file)
 
-triploid_dn_GT_vals <- triploid_denovo_SNPs %>% site_genotype_stats()
+triploid_dn_GT_vals <- triploid_denovo_SNPs %>% 
+  site_genotype_stats()
 
 # Get sitewise genotype stats for each founder group
 triploid_dn_Line_GT_vals <- data.frame(NULL)
@@ -130,8 +133,8 @@ for(l in levels(triploid_denovo_SNPs$Line)) {
   triploid_dn_Line_GT_vals <- rbind(triploid_dn_Line_GT_vals, line_GT_vals)
 }
 
-variant_other_lines <- dn_Line_GT_vals %>% 
-  filter(!(nHet_evo == 0 & nAlt_evo == 0)) %>% pull(POSi)
+# variant_other_lines <- dn_Line_GT_vals %>% 
+#   filter(!(nHet_evo == 0 & nAlt_evo == 0)) %>% pull(POSi)
 # Get sites for which there is a single polymorphism among all clones of a founder group
 evo_single_mut_Line <- triploid_dn_Line_GT_vals %>% 
   filter(nRef_evo >= 4 & ((nHet_evo == 1 & nAlt_evo == 0) | (nAlt_evo == 1 & nHet_evo == 0))) %>% 
@@ -141,7 +144,7 @@ evo_single_mut_Line <- triploid_dn_Line_GT_vals %>%
 evo_single_Line_POSi <- evo_single_mut_Line %>%
   distinct(POSi) %>% pull(POSi)
 
-# Find sites for which there is a single polymorphism among all end-point clones and get postions
+# Find sites for which there is a single polymorphism among all end-point clones and get positions
 evo_single_mut_POSi <- triploid_dn_GT_vals %>% 
   filter(POSi %in% evo_single_Line_POSi & 
            !(POSi %in% evo_single_Line_POSi) &
@@ -196,7 +199,7 @@ n_complex <- nrow(triploid_mut_set) - nrow(triploid_mut_set_merge)
 triploid_n_SNMs <- nrow(triploid_mut_set_merge)
 
 # Number of diploid positions
-triploid_SNM_rate <- triploid_n_SNMs / (length(triploid_evo_IDs)*n_gens*n_sites)
+triploid_SNM_rate <- triploid_n_SNMs / (length(triploid_evo_IDs)*n_gens*mean_cover*2)
 triploid_SNM_rate
 
 ###############################################################################
@@ -216,8 +219,8 @@ triploid_mean_SNMrate <- triploid_final_counts %>%
   summarise(total_SNMs = sum(n), mean_SNM = mean(n), sd_SNM = sd(n), n_clones = n())
 
 triploid_mean_SNMrate$se_SNM <- triploid_mean_SNMrate$sd_SNM/sqrt(triploid_mean_SNMrate$n_clones)
-triploid_mean_SNMrate$mean_rate <- triploid_mean_SNMrate$mean_SNM / n_gens / n_sites
-triploid_mean_SNMrate$se_rate <- triploid_mean_SNMrate$se_SNM / n_gens / n_sites
+triploid_mean_SNMrate$mean_rate <- triploid_mean_SNMrate$mean_SNM / n_gens / (mean_cover*2)
+triploid_mean_SNMrate$se_rate <- triploid_mean_SNMrate$se_SNM / n_gens / (mean_cover*2)
 
 
 

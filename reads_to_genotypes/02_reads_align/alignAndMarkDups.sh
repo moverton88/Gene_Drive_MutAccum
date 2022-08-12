@@ -25,7 +25,7 @@ fi
 # samtools view -h [include header] -b [bam output] -u [uncompressed .bam] | sort -m [memory allocated] -o [output file] -T [temp files]
 bowtie2 --rg-id ${index} --rg SM:${index} --very-sensitive-local -I 100 -X 1000 \
 -x ${REFPREFIX} -1 ${R1PFILE} -2 ${R2PFILE} -U "${R1UFILE},${R2UFILE}" \
-| samtools view -h -b -u | samtools sort -m 10000000 -o ${bamRaw} -O bam -T ${bamDir}/temp_dir/${INDEX}
+| samtools view -h -b -u | samtools sort -m 10000000 -o ${bamRaw} -O bam -T ${bamDir}/temp_dir/${index}
 
 # other bowtie2 options: -N 1 -L 20 --mp 3,2 --rdg 3,2 --rfg 3,2 --local
 # Remove duplicate reads

@@ -2,6 +2,7 @@
 ####################################################################################
 # R script for the analysis of mutAccum GATK VCFs according to lineage
 library(boot)
+library(patchwork)
 library(htmlTable)
 library(kableExtra)
 library(magick)
@@ -25,15 +26,16 @@ library(gridExtra)
 library(data.table)
 library(bedr, verbose = T)
 library(kSamples)
+library(uniftest)
 library(effsize)
 library(foreach)
+library(twosamples)
 library(doParallel)
+library(scales)
+library(gt)
 library(tidyverse)
 
 ####################################################################################
-
-options(scipen = 5)
-
 # Set directory variables
 setwd("/Users/Mastermind/SK_Lab/PhD_Projects/geneDrive/")
 
@@ -70,14 +72,18 @@ SNPs_merge_raw_filename <- paste0(dataIntDir, "SNPs_merge_raw_2022_03.RData")
 SNPs_merge_filename <- paste0(dataIntDir, "SNPs_merge_final_2022_03.RData")
 LOH_SNPs_file <- paste0(dataIntDir, "LOH_SNPs_2022_03.RData")
 denovo_SNPs_file <- paste0(dataIntDir, "denovo_SNPs_2022_03.RData")
-bounds_filename <- paste0(dataIntDir, "all_LOHbounds_EC_2022_03.RData")
-countsEC_filename <- paste0(dataIntDir, "all_LOHcounts_EC_2022_03.RData")
-counts_filename <- paste0(dataIntDir, "all_LOHcounts_2022_03.RData")
+bounds_filename <- paste0(dataIntDir, "all_LOHbounds_NS_2022_04.RData")
+countsEC_filename <- paste0(dataIntDir, "all_LOHcounts_NS_2022_04.RData")
+counts_filename <- paste0(dataIntDir, "all_LOHcounts_2022_04.RData")
 
 triploid_merge_raw_filename <- paste0(dataIntDir, "triploid_SNPs_merge.RData")
 triploid_merge_filename <- paste0(dataIntDir, "triploid_SNPs_final.RData")
+triploid_LOH_SNPs_file <- paste0(dataIntDir, "triploid_LOH_SNPs.RData")
+triploid_denovo_SNPs_file <- paste0(dataIntDir, "triploid_denovo_SNPs.RData")
 
-# Define asthetics
+# Define options and asthetics
+options(scipen = 3, max.print = 100)
+
 theme_set(theme_minimal() + 
             theme(plot.background = element_rect(fill = "white", colour = NA)))
 
@@ -85,11 +91,14 @@ lineagePal <-c(brewer.pal(8,"Dark2"), brewer.pal(4,"Set1"), brewer.pal(8,"Set2")
 txPal <- c("#444444", "#BAD600", "#40B0A6")
 allelePal <- c("orange2", "grey20", "blue3")
 
-
+GT_levels <- c("0/0", "0/1", "1/1")
 Tx_levels <- c("N", "H", "F")
 Tx_ID_levels <- c("W", "C", "D")
 Tx_name_levels <- c("WT", "Cas9", "Drive")
-
+Tx_combo <- data.frame(Tx_1 = c("WT", "WT", "Cas9"), 
+                       Tx_2 = c("Cas9", "Drive", "Drive"))
+Tx_ID_combo <- data.frame(Tx_1 = c("W", "W", "C"), 
+                          Tx_2 = c("C", "D", "D"))
 # End-point clones tested for drive activity
 DA_clones <- c("F_A09", "F_C02", "F_D01", "F_F03", "F_F07", "F_G10")
 
@@ -107,6 +116,7 @@ chrom_lengths_BY <- c(230218, 813184, 316620, 1531933, 576874, 270161, 1090940,
 
 
 chrom_lengths_BY_df <- cbind(chrom_IDs, chrom_length = chrom_lengths_BY)
+chrom_lengths_BY_df$CHROM <- factor(chrom_lengths_BY_df$CHROM)
 
 chrom_lengths_RM <- c(230348, 812918, 316506, 1532315, 576771, 270224, 1091128,
                       563026, 440151, 745731, 667107, 1078742, 924979, 784407,
@@ -133,6 +143,7 @@ chrom_coord <- function(lngths) {
 }
 
 chrom_bound_BY <- chrom_coord(chrom_lengths_BY)
+chrom_bound_BY$length <- chrom_lengths_BY_df$chrom_length
 chrom_bound_BY$rom_CHROM <- roman_chr[as.numeric(chrom_bound_BY$CHROM)]
 chrom_bound_RM <- chrom_coord(chrom_lengths_RM)
 
@@ -144,7 +155,7 @@ centrom_POS <- c(151515, 238255, 114435, 449760,
 centrom_POSi <- centrom_POS + chrom_bound_BY$Start - 1
 
 
-centrom_df <- data.frame(CHROM = str_pad(1:16, width = 2, pad = "0"), 
+centrom_df <- data.frame(CHROM = factor(str_pad(1:16, width = 2, pad = "0")), 
                          POS = centrom_POS, POSi = centrom_POSi)
 centrom_df$rom_CHROM <- roman_chr[as.numeric(centrom_df$CHROM)]
 
@@ -169,6 +180,26 @@ rRNA_POSi <- data.frame(ID = "rRNA", POS = c(447000, 490000),
 Ty_POSi <- data.frame(ID = "Ty", POS = c(197400, 197600), 
                       POSi = chrom_bound_BY$Start[10] + c(197400, 197600))
 
+# Create liftover file for RM vcf import
+###############################################################################
+BYtoRMchainDf <- chainToDF(chainFile)
+
+# RMxBY variant site positions
+###############################################################################
+
+# Table created by aligning RM and BY references and outputting variant sites
+# using bcftools consensus
+RMxBY_vcf <- RMxBY_vcfParse(RMxBY_file)
+iRMxBY_SNPs <- nchar(RMxBY_vcf$BY) == 1 & nchar(RMxBY_vcf$RM) == 1 
+RMxBY_SNPs_POSi <- RMxBY_vcf$POSi[iRMxBY_SNPs]
+
+iRMxBY_indels <- nchar(RMxBY_vcf$BY) > 1 | nchar(RMxBY_vcf$RM) > 1 
+RMxBY_indels_POSi <- RMxBY_vcf$POSi[iRMxBY_indels]
+
+RMxBY_comp_vcf <- RMxBY_vcfParse(RMxBY_comp_file)
+iRMxBY_comp_SNPs <- nchar(RMxBY_comp_vcf$BY) == 1 & nchar(RMxBY_comp_vcf$RM) == 1 
+RMxBY_comp_SNPs_POSi <- RMxBY_comp_vcf$POSi[iRMxBY_comp_SNPs]
+
 # These sites do not show a consistent genotype in the ancestors
 # potentially due to mapping difficulty or mutations
 prob_sites <- c(187555, 187558, 3675443, 3675444, 3675448)
@@ -181,9 +212,18 @@ tx_popGens <- data.frame(Tx_name = c("WT", "Cas9", "Drive"),
 n_gens <- mean(tx_popGens$gens)
 
 
-chorm_fn <- "./refseq/BY_ref/S288C_R64_refseq.fasta"
-BY_seq <- read.fasta(chorm_fn, as.string = T)
-BY_seq_v <- read.fasta(chorm_fn, as.string = F)
+BY_ref_fn <- "./refseq/BY_ref/S288C_R64_refseq.fasta"
+BY_seq <- read.fasta(BY_ref_fn, as.string = T)
+BY_seq_v <- read.fasta(BY_ref_fn, as.string = F)
+
+BY4742_ref_fn <- "./refseq/BY_ref/BY4742_refseq.fasta"
+BY4742_seq <- read.fasta(BY4742_ref_fn, as.string = T)
+BY4742_seq_v <- read.fasta(BY4742_ref_fn, as.string = F)
+
+RM_ref_fn <- "./refseq/RM_ref/RM_refseq_UCSD_2020_v4.fna"
+RM_seq <- read.fasta(RM_ref_fn, as.string = T)
+RM_seq_v <- read.fasta(RM_ref_fn, as.string = F)
+
 gRNA_seq <- "acttgaagattctttagtgt"
 gRNA_seq_split <- unlist(strsplit(gRNA_seq, split = ""))
 gRNA_seq_comp_split <- rev(comp(gRNA_seq_split))

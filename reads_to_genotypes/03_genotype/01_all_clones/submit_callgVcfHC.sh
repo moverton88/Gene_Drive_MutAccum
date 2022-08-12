@@ -6,21 +6,22 @@
 # BY = BY reference
 # BYm = BY masked reference
 # Cas9 = gRNA and Cas9 integrated construct
-export alignRef=Cas9_F
+export alignRef=RM
 export callRef=${alignRef}
 
 export tag=default 
 # export alignTag=""
 # _local
+projDir=/oasis/tscc/scratch/mioverto/LOH_methods/Pankajam_etal_2020
+# projDir=/oasis/tscc/scratch/mioverto/geneDrive/dualRef
+export bamDir=${projDir}/${alignRef}_aligned/bam
+export gVCFdir=${projDir}/${alignRef}_aligned/variants/gVCFs
+# export gVCFdir=${projDir}/${alignRef}_aligned/variants/gVCFs/${callRef}_call
 
 if [ ${alignRef} == BY ] ; then
 export refSeq=/home/mioverto/geneDrive/refseq/BY/S288C_R64_refseq.fna
-export bamDir=/oasis/tscc/scratch/mioverto/geneDrive/dualRef/${alignRef}_aligned/bam
-        export gVCFdir=/oasis/tscc/scratch/mioverto/geneDrive/dualRef/${alignRef}_aligned/variants/gVCFs/${callRef}_call
     elif [[ ${alignRef} == RM ]] ; then
     export refSeq=/home/mioverto/geneDrive/refseq/RM/RM_refseq_UCSD_2020_v4.fna
-        export bamDir=/oasis/tscc/scratch/mioverto/geneDrive/dualRef/${alignRef}_aligned/bam
-        export gVCFdir=/oasis/tscc/scratch/mioverto/geneDrive/dualRef/${alignRef}_aligned/variants/gVCFs/${callRef}_call
     elif [[ ${alignRef} == Cas9_N ]] ; then
         export bamDir=/oasis/tscc/scratch/mioverto/geneDrive/Cas9/bam
         export gVCFdir=/oasis/tscc/scratch/mioverto/geneDrive/Cas9/variants/gVCFs/
@@ -54,15 +55,17 @@ export metricsDir=${bamDir}/depth_metrics/
 
 export DATE=$(date +'%m_%d_%Y')
 export script=/home/mioverto/code/variants/01_call_gVCF_gatkHC_default.sh
-export logDir=/oasis/tscc/scratch/mioverto/geneDrive/log/callGvcf
+export logDir=/oasis/tscc/scratch/mioverto/LOH_methods/log
+# export logDir=/oasis/tscc/scratch/mioverto/geneDrive/log/callGvcf
 # export vcfIn=/home/mioverto/geneDrive/POS_files/RMvcf/RMxBY_ref_noMit.vcf
 # export vcfIn=/home/mioverto/geneDrive/POS_files/RMxBY_ref_rev.vcf
 
-for bamfile in ${bamDir}/DeDup/F*_local.dm.bam; do
+for bamfile in ${bamDir}/DeDup/L03*_local.dm.bam; do
     # export R1FILE=/oasis/tscc/scratch/mioverto/data/MAseq1/reads/trim/half-L100_1_R1P.trimmed.fastq
     export bamDeDup=${bamfile}
     export tmp=$(basename "${bamDeDup}" .dm.bam)
-    export index=${tmp:0:5}_${callRef}
+    export index=${tmp%%_*}_${callRef}
+    # export index=${tmp:0:5}_${callRef}
     export bamAlgnMetrics=${metricsDir}/${index}_${tag}.algn.txt
     export bamWGSmetrics=${metricsDir}/${index}_${tag}.wgs.txt
     export gVCFout=${gVCFdir}/${index}_${tag}.g.vcf

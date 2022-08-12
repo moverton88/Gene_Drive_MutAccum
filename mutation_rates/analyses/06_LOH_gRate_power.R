@@ -9,16 +9,16 @@
 # produce a significant p value given a threshold alpha (0.05 or 0.01).
 # This whole iteration is repeated with the next effect size until
 # the range of significance fractions crosses the desired power 
-# threshold of 0.9
+# threshold of 0.9.
 
 ###############################################################################
 # Observed LOH counts, constant variance, varying effect size ------
-LOHcounts_in <- all_LOHcounts_merge_EC
+LOHcounts_in <- all_LOHcounts_merge_NS
 ID_freq <- LOHcounts_in %>% ungroup() %>% group_by(Tx) %>% summarise(nID = n())
 n_clones <- min(ID_freq$nID)
 pooled_LOHcounts_A <- data.frame(clone_ID = str_pad(1:nrow(LOHcounts_in), 3, pad = "0"), 
                                  n_LOH = LOHcounts_in$n_LOH)
-n_iterations <- 10
+n_iterations <- 100
 # set difference between distribution means
 d_mu_LOH <- seq(0.1, 0.5, 0.05)
 pos_vs_ES <- data.frame(NULL)
@@ -68,6 +68,8 @@ for(j in 1:length(d_mu_LOH)) {
   pos_vs_ES <- rbind(pos_vs_ES, pos_vs_ES_j)
   print(paste0("ES iteration ", j, "/", length(d_mu_LOH)))
 }
+
+pos_vs_ES_10 <- pos_vs_ES
 
 pooled_LOHcounts_A$group <- "A"
 pooled_LOHcounts_B$group <- "B"
@@ -124,7 +126,7 @@ ggsave(file.path(outIntDir, "obsvDist_power_LOH_plot_v4_mean.png"),
        dpi = 600)
 
 ###############################################################################
-# Observed SNM counts, constant variance, varying effect size ------
+# Observed point mutation counts, varying effect size ------
 SNMcounts_in <- SNMs_final_counts
 n_clones <- round(mean(n_clones_xTx$n))
 pooled_SNMcounts_A <- data.frame(clone_ID = str_pad(1:nrow(SNMcounts_in), 3, pad = "0"), 
@@ -300,6 +302,7 @@ ggsave(file.path(outIntDir, "obsvDist_power_SNM_plot.png"),
        dpi = 600)
 
 
+
 # The distribution of the no. of LOH events appears to be overdispersed compared to
 # a Poisson distribution, but is well fit by a negative binomial distribution. 
 # The NB distribution is defined by a mean "mu" term and a dispersion parameter
@@ -312,7 +315,7 @@ ggsave(file.path(outIntDir, "obsvDist_power_SNM_plot.png"),
 # ID_freq <- LOHcounts_in %>% ungroup() %>% group_by(Tx) %>% summarise(nID = n())
 
 
-nRuns_freq <- LOHcounts_in %>% dplyr::count(n_LOH)
+nRuns_freq <- LOHcounts_in %>% count(n_LOH)
 # missing_vals <- data.frame(n_LOH = which(! 1:max(nRuns_freq$n_LOH) %in% nRuns_freq$n_LOH), n = 0)
 nRuns_freq_nb <- nRuns_freq
 # nRuns_freq_nb <- rbind(nRuns_freq, missing_vals) %>% arrange(n_LOH)

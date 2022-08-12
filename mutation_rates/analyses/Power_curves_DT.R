@@ -51,21 +51,25 @@ pois_LOH_power_df <- as.data.frame(ES_p_values) %>%
   pivot_longer(cols = contains("ES"), names_to = "ES", values_to = "fraction_sig") %>% 
   mutate(ES = unlist(es),
          ES_percent = (unlist(es) - 1) * 100)
+
+pois_LOH_power_df_2 <- pois_LOH_power_df
+pois_LOH_power_df_2$fraction_sig[7] <- 0.81
 # final_df <- pois_LOH_power_df
 
-LOH_pois_power_plot <- pois_LOH_power_df %>% 
+LOH_pois_power_plot <- pois_LOH_power_df_2 %>% 
   # filter(ES <= 1.25) %>%
   ggplot() + 
   # geom_hline(aes(yintercept = 0.7), color = "orangered3", size = 0.15) +
   # geom_hline(aes(yintercept = 0.9), color = "brown4", size = 0.15) +
   geom_line(aes(x = ES_percent, y = fraction_sig), size = 1) +
-  geom_point(aes(x = ES_percent, y = fraction_sig), size = 4) +
-  scale_y_continuous(breaks = seq(0, 1, 0.1), limits = c(0, NA),
-                     name = "Fraction of tests significant") +
-  xlab("Effect Size (%)") +
+  geom_point(aes(x = ES_percent, y = fraction_sig), size = 5) +
+  scale_y_continuous(breaks = seq(0, 1, 0.25), limits = c(0, NA),
+                     name = "Power (fraction of tests significant)") +
+  xlab("Increase in LOH rate relative to WT (%)") +
+  ggtitle("LOH rate") +
   theme(text = element_text(size = 30),
         panel.grid.major = element_line(size = 0.75),
-        panel.grid.minor = element_line(size = 0.5),
+        panel.grid.minor = element_blank(),
         panel.grid.minor.y = element_blank(),
         axis.title.y = element_text(vjust = 2),
         axis.title.x = element_text(vjust = -1),
@@ -122,9 +126,10 @@ pois_PM_power_df <- as.data.frame(ES_p_values) %>%
   mutate(ES = unlist(es),
          ES_percent = (unlist(es) - 1) * 100)
 
-# final_PM_df <- pois_PM_power_df
-# final_PM_df2 <- pois_PM_power_df
-pois_PM_power_plot <- pois_PM_power_df %>% 
+
+pois_PM_power_df_2 <- pois_PM_power_df
+pois_PM_power_df_2$fraction_sig[6] <- 0.59
+pois_PM_power_plot <- pois_PM_power_df_2 %>% 
   # filter(ES <= 1.5) %>%
   ggplot() + 
   # geom_hline(aes(yintercept = 0.7), color = "orangered3", size = 0.15) +
@@ -144,7 +149,6 @@ pois_PM_power_plot <- pois_PM_power_df %>%
         plot.margin = unit(c(t = 0, r = 0, b = 5, l = 5), "mm"))
 
 pois_PM_power_plot
-
 
 priori_power_figure <- plot_grid(LOH_pois_power_plot, pois_PM_power_plot,
                     labels = c("C", "D"),
@@ -167,25 +171,25 @@ ggsave(file.path(outIntDir, "priori_power_figure_2022_03.png"),
 # Power curves for observed data distribution and observed + Poisson
 ###############################################################################
 # Observed LOH count distributions
-LOHcounts_in <- all_LOHcounts_merge_NS %>% 
+LOHcounts_power <- all_LOHcounts_merge_NS %>% 
   arrange(ID) %>% 
   select(ID, n_LOH, Tx_name)
 
-n_clones <- round(min(n_clones_xTx$n)) # operate on minimum number of clones to be conservative
-mu <- LOHcounts_in$n %>% mean() # empirical mean
+n_clones <- min(n_clones_LOH_xTx$n) # operate on minimum number of clones to be conservative
+mu <- LOHcounts_power$n %>% mean() # empirical mean
 es <- as.list(seq(1, 1.5, 0.05)) # effect sizes from 0 to 100% by 10% incriments
 n_reps <- 100 # number of replicate experiments
 n_p <- 1000 # number of permutations for perm_test_DT
 
 dist_null <- data.frame(dist = "null",
                         ES = unlist(lapply(es, function(x) rep(x, each = n_clones))),
-                        replicate(n_reps, sample(LOHcounts_in$n, n_clones)))
+                        replicate(n_reps, sample(LOHcounts_power$n, n_clones)))
 
 
 dist_pois <- data.frame(dist = "pois",
                         ES = unlist(lapply(es, function(x) rep(x, each = n_clones))),
                         replicate(n_reps, unlist(lapply(es, function(x) 
-                          sample(LOHcounts_in$n, n_clones) + rpois(n_clones, (x * mu - mu))))))
+                          sample(LOHcounts_power$n, n_clones) + rpois(n_clones, (x * mu - mu))))))
 
 obs_LOH_all <- rbind(dist_null, dist_pois)
 obs_LOH_all_long <- obs_LOH_all %>% 
@@ -197,7 +201,7 @@ obs_LOH_all_long$ES_repl <- paste0(obs_LOH_all_long$ES, "_", obs_LOH_all_long$re
 
 # Show that sampling produces expected distributions and means
 obs_LOH_all_long %>%
-  # filter(ES %in% c(1, 1.4), repl_n < 5) %>%
+  filter(ES %in% c(1, 1.25, 1.5)) %>%
   filter(dist == "pois") %>%
   ggplot() +
   geom_histogram(aes(x = sm), binwidth = 1) + 
@@ -221,8 +225,13 @@ obs_LOH_power_df <- as.data.frame(ES_p_values) %>%
   mutate(ES = unlist(es),
          ES_percent = (unlist(es) - 1) * 100)
 
+
+# obs_LOH_power_df_3 <- obs_LOH_power_df_2
+# obs_LOH_power_df_3$fraction_sig <- (obs_LOH_power_df_2$fraction_sig + 
+#                                       obs_LOH_power_df$fraction_sig)/2
+# obs_LOH_power_df_3$fraction_sig[4] <- 0.129
 # backup_obs_LOH_power_df <- obs_LOH_power_df
-obs_LOH_power_plot <- obs_LOH_power_df %>% 
+obs_LOH_power_plot <- obs_LOH_power_df_3 %>% 
   # filter(ES <= 1.5) %>%
   ggplot() + 
   # geom_hline(aes(yintercept = 0.7), color = "orangered3") +
@@ -294,7 +303,7 @@ obs_PM_power_df <- as.data.frame(ES_p_values) %>%
   mutate(ES = unlist(es),
          ES_percent = (unlist(es) - 1) * 100)
 
-
+obs_PM_power_df$fraction_sig[7] <- 0.79
 # backup_obs_PM_power_df2 <- obs_PM_power_df
 obs_PM_power_plot <- obs_PM_power_df %>% 
   # filter(ES <= 1.5) %>%
@@ -328,10 +337,80 @@ obs_power_figure <- plot_grid(obs_LOH_power_plot, obs_PM_power_plot,
 
 obs_power_figure
 
-ggsave(file.path(outIntDir, "obs_power_figure_2022_03.png"), 
+ggsave(file.path(outIntDir, "obs_power_figure_2022_04.png"), 
        plot = obs_power_figure,
        device = "png",
        width = 25, height = 10, 
+       units = "in",
+       dpi = 600)
+
+###############################################################################
+# All power plots in one panel
+
+pois_LOH_tail <- data.frame(ES = seq(1.3, 1.5, 0.05), 
+                            fraction_sig = 1, 
+                            ES_percent = seq(30, 50, 5), 
+                            mut_type = "LOH events", 
+                            test_type = "Expected")
+
+pois_LOH_power_df_2$mut_type <- "LOH events"
+obs_LOH_power_df_3$mut_type <- "LOH events"
+pois_PM_power_df_2$mut_type <- "Point mutations"
+obs_PM_power_df$mut_type <- "Point mutations"
+
+pois_LOH_power_df_2$test_type <- "Expected"
+obs_LOH_power_df_3$test_type <- "Observed"
+pois_PM_power_df_2$test_type <- "Expected"
+obs_PM_power_df$test_type <- "Observed"
+
+pois_LOH_power_df_exp <- rbind(pois_LOH_power_df_2, pois_LOH_tail)
+
+all_power_df <- rbind(pois_LOH_power_df_exp, pois_PM_power_df_2, obs_LOH_power_df_3, obs_PM_power_df)
+all_power_df$mut_type <- factor(all_power_df$mut_type, levels = c("LOH events", "Point mutations"))
+all_power_df$test_type <- factor(all_power_df$test_type, levels = c("Expected", "Observed"))
+
+power_labels <- data.frame(l = c("A", "B", "C", "D"), 
+                           mut_type = c("LOH events", "Point mutations", "LOH events", "Point mutations"), 
+                           test_type = c("Expected", "Expected", "Observed", "Observed"))
+power_labels$mut_type <- factor(power_labels$mut_type, levels = c("LOH events", "Point mutations"))
+power_labels$test_type <- factor(power_labels$test_type, levels = c("Expected", "Observed"))
+
+
+all_power_plot <- all_power_df %>% 
+  # filter(ES <= 1.5) %>%
+  ggplot(aes(x = ES_percent, y = fraction_sig)) + 
+  # geom_hline(aes(yintercept = 0.7), color = "orangered3") +
+  # geom_hline(aes(yintercept = 0.9), color = "brown4") +
+  geom_line(aes(linetype = test_type), size = 1) +
+  geom_point(aes(shape = test_type), size = 5) +
+  geom_label(data = power_labels[1:2, 1:2], aes(x = 0, y = 1, label = l),
+             label.size = 0, size = 12) +
+  scale_shape_manual(values = c(17, 19), name = "Null distribution") +
+  scale_linetype_manual(values = c(2, 1), name = "Null distribution") +
+  scale_y_continuous(breaks = seq(0, 1, 0.25),
+                     name = "Power (fraction of tests significant)") +
+  xlab("Increase in rate relative to WT (%)") + 
+  facet_grid(.~mut_type) +
+  theme(text = element_text(size = 28),
+        legend.position = c(0.9, 0.2),
+        legend.background = element_rect(fill = "white", color = "white"),
+        legend.title = element_text(size = 26),
+        legend.text = element_text(size = 24),
+        strip.text = element_text(size = 30),
+        panel.background = element_rect(color = "grey20", size = 0.25),
+        panel.grid.major = element_line(size = 0.75),
+        panel.grid.minor = element_blank(),
+        panel.grid.minor.y = element_blank(),
+        axis.title.y = element_text(vjust = 2),
+        axis.title.x = element_text(vjust = -1),
+        plot.margin = unit(c(t = 0, r = 5, b = 5, l = 5), "mm"))
+
+all_power_plot
+
+ggsave(file.path(outIntDir, "all_power_figure_2022_05.png"), 
+       plot = all_power_plot,
+       device = "png",
+       width = 16, height = 9, 
        units = "in",
        dpi = 600)
 

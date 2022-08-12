@@ -25,7 +25,6 @@ java -Xmx16G -jar $GATK AddOrReplaceReadGroups \
 
 # samtools index $BAMCRCT
 
-# Call variants with HaplotypeCaller. -ERC generates a gVCF file
 java -Xmx16G -jar $GATK BaseRecalibrator \
    -I ${bamCrct} \
    -R ${refSeq} \

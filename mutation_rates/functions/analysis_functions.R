@@ -1,4 +1,52 @@
 
+mean.fun <- function(d, idx) {
+  mean((d[idx]), trim = 0, na.rm = T)
+}
+
+sum.fun <- function(d, idx) {
+  sum((d[idx]), trim = 0, na.rm = T)
+}
+
+proportion_z_score <- function(c_table, grp) {
+  # c_table <- LOH_type_xTx[1:3]
+  # grp <- "Tx_ID"
+  c_table[, grp] <- factor(c_table[, grp])
+  grp_levels <- levels(c_table[, grp])
+  combos <- expand.grid(as.numeric(c_table[, grp]), 
+                        as.numeric(c_table[, grp])) %>% 
+    filter(Var1 < Var2)
+  c_1_range <- unique(combos$Var1) %>% sort()
+  c_2_range <- unique(combos$Var2) %>% sort()
+  Vars <- colnames(c_table)[colnames(c_table) != grp]
+  c_table$sums <- c_table[,Vars[1]] + c_table[, Vars[2]]
+  
+  c_stats <- data.frame(x_1 = c_table[combos$Var1, Vars[1]], 
+                        x_2 = c_table[combos$Var2, Vars[1]], 
+                        n_1 = c_table$sums[combos$Var1], 
+                        n_2 = c_table$sums[combos$Var2])
+  c_stats <- c_stats %>% mutate(p_1 = x_1/n_1, p_2 = x_2/n_2)
+  combos <- cbind(combos, c_stats)
+  combos$z <- 0
+  for(c in 1:nrow(combos)) {
+    # c <- 1
+    c_1 <-  combos$Var1[c]
+    c_2 <-  combos$Var2[c]
+    p_a <- (combos$x_1[c] + c_stats$x_2[c])/(c_stats$n_1[c] + c_stats$n_2[c])
+    combos$z[c] <- (combos$p_1[c] - combos$p_2[c]) /
+      sqrt(p_a*(1-p_a)*(1/combos$n_1[c] + 1/combos$n_2[c]))
+  }
+  combos$p <- pnorm(q = -abs(combos$z), lower.tail = T) * 2
+  combos$Var1 <- factor(combos$Var1, labels = grp_levels[c_1_range])
+  combos$Var2 <- factor(combos$Var2 - 1, labels = grp_levels[c_2_range])
+  combos_out <- combos %>% select(Var2, Var1, z, p)
+  colnames(combos_out) <- c(paste0(grp, "_null"), paste0(grp, "_test"), "Z-score", "P-value")
+  return(combos_out)
+}
+
+format_sci_10 <- function(l) {
+  t_exp <- ifelse(l == 0, 0, 
+                  parse(text = gsub("e", " %*% 10^", format(x = l, digits = 2, scientific = T))))
+}
 
 factorIntegers <- function(df_variable) {
   # Find length of largest element and pad fewer digit integers
@@ -8,8 +56,10 @@ factorIntegers <- function(df_variable) {
 }
 
 operate_by_factor_match <- function(op_pair, trgt_pair, .fun) {
-  # op_pair <- n_clones_xTx
-  # trgt_pair <- LOH_SNPs %>% slice_sample(n = 10) %>% select(Tx_name, POS)
+  # op_pair <- chrom_arms[, c("CHROM", "arm_2_cent")]
+  # trgt_pair <- POSi_data_in[!i_cent_neg, c("CHROM", "est_mid_POS")]
+  op_pair <- as.data.frame(op_pair)
+  trgt_pair <- as.data.frame(trgt_pair)
   op_levels <- levels(op_pair[, 1])
   trgt_levels <- levels(trgt_pair[, 1])
   trgt_pair$rn <- 1:nrow(trgt_pair)
@@ -35,16 +85,6 @@ operate_by_factor_match <- function(op_pair, trgt_pair, .fun) {
   } else {
     print("factor levels are different lengths")
   }
-}
-
-CategoriesFromID <- function(df_in) {
-  # requires variable "ID" in dataframe with the format T_Lxx
-  # where T is the Tx, T_L is the Line, and xx is the Rep
-  df_in$Tx <- factor(substr(df_in$ID, 1, 1))
-  df_in$Line <- factor(substr(df_in$ID, 1, 3))
-  df_in$Rep <- factor(substr(df_in$ID, 4, 5))
-  df_in$Tx_name <- Recode_Tx(df_in$Tx)
-  return(df_in)
 }
 
 Recode_Tx <- function(Tx_col) {
@@ -76,7 +116,7 @@ factorTxNames <- function(TxNames_col) {
   return(TxNames_out)
 }
 
-Recode_Tx_ID <- function(Tx_col) {
+Recode_Tx_ID <- function(Tx_col, tx_type = "Tx", Tx_ID_lvls = Tx_ID_levels) {
   # Input the DF column with old one-character 
   # Tx identifier and output a factored variable with
   # new treatment identifier
@@ -84,10 +124,31 @@ Recode_Tx_ID <- function(Tx_col) {
   if(!is.factor(Tx_col)) {
     Tx_col <- factor(Tx_col)
   }
-  Tx_ID_out <- Recode(Tx_col, "W" = "N", "C" = "H", "D" = "F")
-  Tx_ID_out <- factor(Tx_ID_out, levels = c("D", "C", "W"))
+  if(tx_type == "Tx") {
+    Tx_ID_out <- Recode(Tx_col, "W" = "N", "C" = "H", "D" = "F")
+  }
+   else if(tx_type == "Tx_name"){
+    Tx_ID_out <- Recode(Tx_col, "W" = "WT", "C" = "Cas9", "D" = "Drive")
+   } else if(tx_type == "Tx_ID"){
+     Tx_ID_out <- Tx_col
+   } else {
+    print("Treatment levels not recognized")
+  }
+  Tx_ID_out <- factor(Tx_ID_out, levels = Tx_ID_lvls)
   return(Tx_ID_out)
 }
+
+CategoriesFromID <- function(df_in) {
+  # requires variable "ID" in dataframe with the format T_Lxx
+  # where T is the Tx, T_L is the Line, and xx is the Rep
+  df_in$Tx <- factor(substr(df_in$ID, 1, 1))
+  df_in$Tx_ID <- Recode_Tx_ID(df_in$Tx, tx_type = "Tx")
+  df_in$Line <- factor(substr(df_in$ID, 1, 3))
+  df_in$Rep <- factor(substr(df_in$ID, 4, 5))
+  df_in$Tx_name <- Recode_Tx(df_in$Tx)
+  return(df_in)
+}
+
 
 chainToDF <- function(chainFile, chrom_bound_1 = chrom_bound_BY, chrom_bound_2 = chrom_bound_RM)  {
   chainTable <- read_lines(chainFile)
@@ -492,7 +553,7 @@ RMxBY_vcfParse <- function(vcf_path.) {
 
 
 GenotypeFromGQ <- function(all_alleleMerge, baseThrsh = 50, 
-                              naThrsh = 60, diffThrsh = 30, 
+                              naThrsh = 100, diffThrsh = 30, 
                            include_DP = T, check_alleles = T) {
   require(dplyr)
   # baseThrsh   baseline threshold - at least one call GQ must exceed this value
@@ -647,114 +708,143 @@ GenotypeFromGQ <- function(all_alleleMerge, baseThrsh = 50,
   return(all_alleleMerge)
 }
 
-MarkDubiousHets <- function(SNP_df, .alpha = 0.05, known_hets = "empirical") {
-  # SNP_df <- triploid_merge_finalGT
+MarkDubiousHets <- function(SNP_df, .alpha = 0.05, known_hets = "empirical", bin_size = 0.1) {
+  # bin_size is in log10 scale. A value of 0.1 yields approximately 30 bins
+  # SNP_df <- indels_merge_finalGT
   # GTstats <- all_wide_GTstats
-  # Filter to sites that are definitely Het in the founders
-  anc_GTstats <- SNP_df %>% site_genotype_stats(group = "anc")
-  if(known_hets == "empirical") {
+  if(length(known_hets) > 2 & is.numeric(known_hets)) {
+    # We can also provide known heterozygous sites to the function instead.
+    anc_het_POSi <- known_hets
+    known_het_sites <- SNP_df %>% select(POSi, ID, Rep, GT, Sum_DP_final, f_Alt) %>%
+      filter(POSi %in% known_hets, GT == "0/1", Rep == "00") %>% arrange(ID, POSi)
+  } else if(known_hets == "empirical") {
+    # We can obtain known heterozygous sites from the founder data. If at least
+    # 7 founders are called and all calls are heterozygous, we can be reasonably
+    # sure that they are true ancestral heterozygous sites.
+    anc_GTstats <- SNP_df %>% site_genotype_stats(group = "anc")
     anc_het_POSi <- anc_GTstats %>% 
       filter(fHet == 1, nHet >= 7) %>% 
       pull(POSi)
     known_het_sites <- SNP_df %>% select(POSi, ID, Rep, GT, Sum_DP_final, f_Alt) %>%
       filter(POSi %in% anc_het_POSi, GT == "0/1", Rep == "00") %>% arrange(ID, POSi)
-  } else if(length(known_hets > 2 & is.numeric(known_hets))) {
-    known_het_sites <- SNP_df %>% select(POSi, ID, Rep, GT, Sum_DP_final, f_Alt) %>%
-      filter(POSi %in% known_hets, GT == "0/1", Rep == "00") %>% arrange(ID, POSi)
   } else {
     print("No known heterozygous sites available")
   }
 
-  # Get range in read depth at Het sites, then form bins
-  temp_range <- range(log10(known_het_sites$Sum_DP_final))
-  bin_range = c(floor(log10(6)*100)/100, ceiling(temp_range[2]*100)/100)
-  bin_size = 0.1
-  log_bins = seq(from = bin_range[1], to = bin_range[2], by = bin_size)
-  log_bins <- c(0, log_bins[-c(1,length(log_bins))])
-  bin_max <- 5
-  log_bins_df <- data.frame(bin = log_bins, upper_bin = c(log_bins[-1], bin_max))
-  log_bins_df$label <- paste0(log_bins_df$bin, " - ", log_bins_df$upper_bin)
-  
-  known_het_sites$log_DP <- log10(known_het_sites$Sum_DP_final)
-  
-  # For each bin range, label sites with bin membership
-  known_het_sites$bin <- 0
-  for(b in 1:nrow(log_bins_df)) {
-    # b = 22
-    i_bin <- known_het_sites$log_DP >= log_bins_df$bin[b] & 
-      known_het_sites$log_DP < log_bins_df$upper_bin[b]
-    known_het_sites$bin[i_bin] <- log_bins_df$bin[b]
-  }
-  
-  # Bins with fewer than 100 sites should be merged into neighboring groups
-  small_bins <- known_het_sites %>% count(bin) %>% filter(n < 100)
-  if(nrow(small_bins) != 0) {
-    to_bin <- max(known_het_sites$bin[known_het_sites$bin < min(small_bins$bin)])
-    i_merge <- known_het_sites$bin %in% small_bins$bin
-    known_het_sites$bin[i_merge] <- to_bin
-  }
-  
-  # Include bin labels for plotting
-  final_bins <- unique(known_het_sites$bin) %>% sort()
-  bin_names <- paste0(final_bins, " - ", c(final_bins[-1], "inf"))
-  names(bin_names) <- final_bins
-  known_het_sites$bin_name <- factor(known_het_sites$bin, labels = bin_names)
-  
-  # Calculate mean and variance of the alt read frequency for each bin
-  mean_alt_freq_known_het <- known_het_sites %>% group_by(bin, bin_name) %>% 
-    summarize(f_alt = mean(f_Alt), var_alt = var(f_Alt))
-  
-  # Assign sites to bins
-  SNP_df$log_DP <- log10(SNP_df$Sum_DP_final)
-  SNP_df$bin <- 0
-  for(b in 1:nrow(log_bins_df)) {
-    # b = 22
-    i_bin <- SNP_df$log_DP >= log_bins_df$bin[b] &
-      SNP_df$log_DP < log_bins_df$upper_bin[b]
-    SNP_df$bin[i_bin] <- log_bins_df$bin[b]
-  }
-  
-  # Ensure the same bins in the training and operating sets
-  SNP_bins <- SNP_df %>% count(bin)
-  bin_mean <- mean(SNP_bins$bin)
-  i_SNP_bin_merge <- which(!SNP_bins$bin %in% final_bins)
-  # i_SNP_bin_add <- which(!final_bins %in% SNP_bins$bin)
-  for(bm in i_SNP_bin_merge) {
-    if(SNP_bins$bin[bm] < bin_mean) {
-      to_bin <- min(SNP_df$bin[SNP_df$bin > SNP_bins$bin[bm]])
-      i_merge <- SNP_df$bin %in% SNP_bins$bin[bm]
-      SNP_df$bin[i_merge] <- to_bin
+  bin_by_DP <- function(sites, DP_col = "Sum_DP_final", return_bin = F, bin_input = "from_data") {
+    # Get range in read depth at Het sites, then form bins
+    # sites <- SNP_df
+    if(is.character(bin_input)) {
+      if(bin_input ==  "from_data") {
+        temp_range <- range(log10(sites$Sum_DP_final))
+        bin_range = c(floor(log10(6)*100)/100, ceiling(temp_range[2]*100)/100)
+        log_bins = seq(from = bin_range[1], to = bin_range[2], by = bin_size)
+        log_bins <- c(0, log_bins[-c(1,length(log_bins))])
+        bin_max <- round(max(log10(sites$Sum_DP_final)) + 3, 2)
+        log_bins_df <- data.frame(bin = log_bins, upper_bin = c(log_bins[-1], bin_max))
+        log_bins_df$label <- paste0(log_bins_df$bin, " - ", log_bins_df$upper_bin)
+      } else {
+        print("bin input not recognized")
+      }
     } else {
-      to_bin <- max(SNP_df$bin[SNP_df$bin < SNP_bins$bin[bm]])
-      i_merge <- SNP_df$bin %in% SNP_bins$bin[bm]
-      SNP_df$bin[i_merge] <- to_bin
+      log_bins_df <- bin_input
+    }
+    if(return_bin) {
+      if(bin_input == "from_data") {
+        return(log_bins_df)
+      } else {
+        print("No data for bin generation")
+      }
+    } else {
+    sites$log_DP <- log10(sites[, DP_col])
+    # For each bin range, label sites with bin membership
+    sites$bin <- 0
+    for(b in 1:nrow(log_bins_df)) {
+      # b = 2
+      i_bin <- sites$log_DP >= log_bins_df$bin[b] & 
+        sites$log_DP < log_bins_df$upper_bin[b]
+      sites$bin[i_bin] <- log_bins_df$bin[b]
+    }
+    
+    # Bins with fewer than 100 sites should be merged into neighboring groups
+    small_bins <- sites %>% 
+      count(bin) %>% filter(n < 100)
+    bin_counts <- sites %>% 
+      count(bin) 
+    if(nrow(small_bins) != 0) {
+      med_bin <- median(sites$bin)
+      small_bins_lo <- small_bins %>% filter(bin < med_bin)
+      if(nrow(small_bins_lo) > 1) {
+        sbl_cont <- sum(diff(which(log_bins_df$bin %in% small_bins_lo$bin)) != 1) == 0
+      } else if(nrow(small_bins_lo) == 1) {
+        sbl_cont <- T
+      } else {
+        sbl_cont <- F
+        print("Low small bins not present")
+      }
+      
+      small_bins_hi <- small_bins %>% filter(bin > med_bin)
+      small_bins_hi <- small_bins_hi %>% arrange(desc(bin))
+      if(nrow(small_bins_hi) > 1) {
+        sbh_cont <- sum(diff(which(log_bins_df$bin %in% small_bins_hi$bin)) != 1) == 0
+      } else if(nrow(small_bins_hi) == 1) {
+        sbh_cont <- T
+      } else {
+        sbh_cont <- F
+        print("High small bins not present")
+      }
+      
+      if(nrow(small_bins_lo) > 0 & sbl_cont) {
+        max_bin_lo <- max(small_bins_lo$bin)
+        to_bin <- min(sites$bin[sites$bin > max_bin_lo])
+        i_merge <- sites$bin <= max_bin_lo
+        sites$bin[i_merge] <- to_bin
+      } else if(nrow(small_bins_lo) > 0 & !sbl_cont) {
+        for(i in seq_along(small_bins_lo$bin)) {
+          bin_lo <- small_bins_lo$bin[i]
+          to_bin <- min(sites$bin[sites$bin > bin_lo])
+          i_merge <- sites$bin == bin_lo
+          sites$bin[i_merge] <- to_bin
+        }
+      } else {
+        print("Low small bin not processed")
+      }
+      
+      if(nrow(small_bins_hi) > 0 & sbh_cont) {
+        min_bin_hi <- min(small_bins_hi$bin)
+        to_bin <- max(sites$bin[sites$bin < min_bin_hi])
+        i_merge <- sites$bin >= min_bin_hi
+        sites$bin[i_merge] <- to_bin
+      } else if(nrow(small_bins_hi) > 0 & !sbh_cont) {
+        for(i in seq_along(small_bins_hi$bin)) {
+          bin_hi <- small_bins_hi$bin[i]
+          to_bin <- min(sites$bin[sites$bin < bin_lo])
+          i_merge <- sites$bin == bin_hi
+          sites$bin[i_merge] <- to_bin
+        }
+      } else {
+        print("High small bin not processed")
+      }
+    }
+    # Include bin labels for plotting
+    final_bins <- unique(sites$bin) %>% sort()
+    bin_names <- paste0(final_bins, " - ", c(final_bins[-1], "inf"))
+    names(bin_names) <- final_bins
+    sites$bin_name <- factor(sites$bin, labels = bin_names)
+    return(sites)
     }
   }
-  # for(bm in i_SNP_bin_add) {
-  #   if(final_bins[bm] < bin_mean) {
-  #     to_bin <- min(SNP_df$bin[SNP_df$bin > SNP_bins$bin[bm]])
-  #     i_merge <- SNP_df$bin %in% SNP_bins$bin[bm]
-  #     SNP_df$bin[i_merge] <- to_bin
-  #   } else {
-  #     to_bin <- max(SNP_df$bin[SNP_df$bin < SNP_bins$bin[bm]])
-  #     i_merge <- SNP_df$bin %in% SNP_bins$bin[bm]
-  #     SNP_df$bin[i_merge] <- to_bin
-  #   }
-  # }
-  q_bins <- sort(unique(SNP_df$bin))
-  n_bins <- length(q_bins)
-  n_known_bins <- length(final_bins)
-  if(n_bins != n_known_bins) {
-    print("bins in known and query sets are not the same")
-  }
-  bin_names_q <- bin_names[q_bins %in% final_bins]
-  # Add bin labels for plotting
-  # SNP_df$bin_name <- factor(SNP_df$bin, levels = names(bin_names_q))
-  # bin_names_all <- bin_names[1:n_bins]
-  # bin_names_all[n_bins] <- paste0(substr(bin_names_all[n_bins], 1, 7), "inf")
-  SNP_df$bin_name <- factor(SNP_df$bin, labels = bin_names_q)
-  # het_normal_all <- het_normal %>% filter(bin %in% unique(SNP_df$bin))
-  # het_normal_all$bin_name <- factor(het_normal_all$bin_name, labels = bin_names_all)
+  
+  known_het_sites <- known_het_sites %>% bin_by_DP()
+  known_het_bins <- known_het_sites %>% bin_by_DP(return_bin = T)
+  final_bins <- known_het_bins$bin
+  bin_names <- known_het_bins$label
+  # Calculate mean and variance of the alt read frequency for each bin
+
+  SNP_df <- SNP_df %>% bin_by_DP(bin_input = known_het_bins)
+  
+  mean_alt_freq_known_het <- known_het_sites %>% group_by(bin, bin_name) %>% 
+    summarize(f_alt = mean(f_Alt), var_alt = var(f_Alt))
   
   # Use variance in alt allele frequency for each bin to calculate
   # standard deviation of the null normal distribution
@@ -765,21 +855,21 @@ MarkDubiousHets <- function(SNP_df, .alpha = 0.05, known_hets = "empirical") {
   
   # Form logical vector of sites outside null distribution threshold .alpha
   cut_out <- rep(F, nrow(SNP_df))
+  GT_split <- colsplit(SNP_df$GT, "/", names = c("A_1", "A_2"))
   for(b in 1:nrow(mean_alt_freq_known_het)) {
     # b = 1
     i_bin <- SNP_df$bin == mean_alt_freq_known_het$bin[b]
     cuts <- c(mean_alt_freq_known_het$low_cut[b], mean_alt_freq_known_het$high_cut[b])
     # Index current bin, Het sits, outside .alpha, and not in the training set
-    i_cut <- i_bin & SNP_df$GT == "0/1" & 
-      (SNP_df$f_Alt <= cuts[1] | SNP_df$f_Alt >= cuts[2]) & 
-      !(SNP_df$POSi %in% anc_het_POSi)
+    i_cut <- i_bin & GT_split$A_1 != GT_split$A_2 & # in bin and het
+      (SNP_df$f_Alt <= cuts[1] | SNP_df$f_Alt >= cuts[2]) & # outside of allele fraction CIs
+      !(SNP_df$POSi %in% anc_het_POSi) # not in training set
     cut_out[i_cut] <- T
   }
   i_zeroAlt_het <- SNP_df$f_Alt == 0 & SNP_df$GT == "0/1" & !(SNP_df$POSi %in% anc_het_POSi)
   cut_out[i_zeroAlt_het] <- T
   return(cut_out)
 }
-
 
 FormatSNPsMerge <- function(SNPs_finalGT_df) {
   if(sum(colnames(SNPs_finalGT_df) == "Sum_DP_final") == 0) {
@@ -788,7 +878,7 @@ FormatSNPsMerge <- function(SNPs_finalGT_df) {
   SNPs_finalGT_df$Line <- droplevels(SNPs_finalGT_df$Line)
   SNPs_finalGT_df$ID <- droplevels(SNPs_finalGT_df$ID)
   SNPs_finalGT_df$Tx_name <- Recode_Tx(SNPs_finalGT_df$Tx)
-  SNPs_finalGT_df$Tx_ID <- Recode_Tx_ID(SNPs_finalGT_df$Tx)
+  SNPs_finalGT_df$Tx_ID <- Recode_Tx_ID(SNPs_finalGT_df$Tx, tx_type = "Tx")
   GTGQ_cols <- grep("finalG", colnames(SNPs_finalGT_df))
   colnames(SNPs_finalGT_df)[GTGQ_cols] <- c("GT", "GQ")
   if(sum(colnames(SNPs_finalGT_df) == "existing_SNP") == 0) {
@@ -1220,11 +1310,13 @@ MergeComplexLOHs <- function(markedBounds_df) {
         # index the rows to include in the complex LOH, retain first row and
         # transfer LOH end position info from last row, recalculate length
         i_complex <- which(markedBounds_df$ID == id & markedBounds_df$LOH_k == k)
+        i_biggest <- i_complex[which.max(markedBounds_df$length[i_complex])]
         markedBounds_df[min(i_complex), end_cols] <- markedBounds_df[max(i_complex), end_cols]
+        markedBounds_df$GT[min(i_complex)] <- markedBounds_df$GT[i_biggest]
         i_length <- markedBounds_df$end[max(i_complex)] - markedBounds_df$start[min(i_complex)]
         est_length <- markedBounds_df$est_end[max(i_complex)] - markedBounds_df$est_start[min(i_complex)]
-        markedBounds_df[min(i_complex), "length"] <- i_length
-        markedBounds_df[min(i_complex), "est_length"] <- est_length
+        markedBounds_df$length[min(i_complex)] <- i_length
+        markedBounds_df$est_length[min(i_complex)] <- est_length
         markedBounds_df <- markedBounds_df[-i_complex[2:length(i_complex)], ]
       }
     }
@@ -1487,9 +1579,11 @@ match_GT_alleles <- function(match_df = match_i_df, indels_df = indels_merge_sam
   # columns for the final RM call alleles, as well as a map of the indicies 
   # of the alleles in the BY callset that match the RM callset
   for(posi in match_df$POSi){
-    # posi = 27636
+    # posi = 1249076
+    # posi = match_df$POSi[522]
     i_mis <- which(indels_df$POSi == posi)
     i_match <- which(match_df$POSi == posi)
+    mis_1 <- as.numeric(indels_df$A_1_BYcall[i_mis])
     mis_1 <- as.numeric(indels_df$A_1_RMcall[i_mis])
     mis_2 <- as.numeric(indels_df$A_2_RMcall[i_mis])
     match_1 <- as.numeric(match_df[i_match, mis_1 + 2]) - 1
@@ -1503,11 +1597,9 @@ match_GT_alleles <- function(match_df = match_i_df, indels_df = indels_merge_sam
 perm_test <- function(df_in, cat_var, cat_names = NULL, response_var, test_stat = mean, 
                       n_perms = 10000, alpha = 0.05, alt_hyp = "two-tailed", rtrn = "p_df", include_matrix = F) {
   require(permute)
-  # df_in = dist_LOH_all_long %>% 
-  #   filter(repl_n %in% 1:100, ES == 1) %>% 
-  #   select(dist, sm)
-  # cat_var = "dist", cat_names = c("BY", "RM"), response_var = "sm"
-  # n_perms = 1000, test_stat = median
+  # df_in = LOH_BPrate_SW_C
+  # cat_var = "hs_C", cat_names = c("n", "y"), response_var = "p"
+  # n_perms = 100, test_stat = mean
   
   # Ensure df_in is a data.frame
   df_in <- as.data.frame(df_in)
@@ -1571,6 +1663,7 @@ perm_test <- function(df_in, cat_var, cat_names = NULL, response_var, test_stat 
 
   # Perform permutation by shuffling categorical names among response values
   for (p in 1:n_perms) {
+    # p = 1
     cat_v_shuff <- cat_v[shuffle(cat_v)]
     cat1_shuff_i <- cat_v_shuff == cat1
     cat2_shuff_i <- cat_v_shuff == cat2
@@ -1747,13 +1840,82 @@ BHcorrection <- function(p_df, p_col = "pVal", FDR = 0.05) {
   return(p_df_out)
 }
 
-SliderCalc <- function(df, data_col, index_col, factor_col, window_size, slide_interval, chrom_win = F, summary_stat, ...) {
+get_LOH_coordinates <- function(POSi_df, Het = F, tLOH_offset = 10000) {
+  # POSi_df <- all_LOHbounds_merge_NS
+  POSi_df$est_start_POS <- ConvertPosIndicies(POSi_df, pos_col = "est_start", index_out = "POS")
+  POSi_df$est_end_POS <- ConvertPosIndicies(POSi_df, pos_col = "est_end", index_out = "POS")
+  
+  if(!Het) {
+    POSi_df$dist_cent_start <- ChromosomeCoordinates(POSi_df, POSi_col = "est_start") %>% 
+      pull(dist_cent)
+    POSi_df$dist_cent_end <- ChromosomeCoordinates(POSi_df, POSi_col = "est_end") %>% 
+      pull(dist_cent)
+    
+    POSi_df <- POSi_df %>% mutate(est_mid_POS = (est_start_POS + est_end_POS)/2)
+    
+    POSi_df$ID_CHROM <- paste0(POSi_df$ID, "_", POSi_df$CHROM)
+    
+    i_Term <- POSi_df$isTerm
+    i_large_term <- i_Term & POSi_df$est_length >= 2 * tLOH_offset
+    head_term <- POSi_df$dist_cent_start < 0 & POSi_df$dist_cent_end < 0
+    # tail_term <- POSi_df$dist_cent_start > 0 & POSi_df$dist_cent_end > 0
+    cross_h_term <- POSi_df$dist_cent_start < 0 & POSi_df$dist_cent_end > 0
+    cross_ID_CHROM <- POSi_df[i_Term & cross_h_term, ] %>% pull(ID_CHROM)
+    # cross_ID_CHROM <- POSi_df[i_Term & cross_h_term & !i_wh_chrom, ] %>% pull(ID_CHROM)
+    
+    cross_h_term_ID <- POSi_df %>%
+      ungroup() %>%
+      filter(i_large_term) %>%
+      # mutate(ID_CHROM = paste0(ID, "_", CHROM)) %>% 
+      filter(ID_CHROM %in% cross_ID_CHROM) %>% distinct(ID_CHROM, .keep_all = T) %>% 
+      summarize(ID_CHROM = ID_CHROM, head_term = ifelse(est_start_POS == 1, T, F))
+    
+    # Correct POS for terminal LOH that do not cross the centromere
+    POSi_df$est_mid_POS[i_large_term] <- ifelse(head_term[i_large_term], 
+                                                POSi_df$est_end_POS[i_large_term] - tLOH_offset, 
+                                                POSi_df$est_start_POS[i_large_term] + tLOH_offset)
+    
+    # Correct POS for terminal LOH that do cross the centromere
+    i_crct <- i_large_term & cross_h_term
+    # i_crct <- i_Term & cross_h_term & !i_wh_chrom
+    
+    POSi_df$est_mid_POS[i_crct][cross_h_term_ID$head_term] <- 
+      POSi_df$est_end_POS[i_crct][cross_h_term_ID$head_term] - tLOH_offset
+    POSi_df$est_mid_POS[i_crct][!cross_h_term_ID$head_term] <- 
+      POSi_df$est_start_POS[i_crct][!cross_h_term_ID$head_term] + tLOH_offset
+    POSi_df$est_mid <- ConvertPosIndicies(POSi_df, pos_col = "est_mid_POS", index_out = "POSi")
+    POSi_df$dist_cent_mid <- ChromosomeCoordinates(POSi_df, POSi_col = "est_mid") %>% 
+      pull(dist_cent)
+    
+    POSi_df$dist_term <- 0
+    i_cent_neg <- POSi_df$dist_cent_mid < 0
+    POSi_df$dist_term[i_cent_neg] <- POSi_df$est_mid_POS[i_cent_neg]
+    POSi_df$dist_term[!i_cent_neg] <- operate_by_factor_match(chrom_bound_BY[, c("CHROM", "End")],
+                                                              POSi_df[!i_cent_neg, c("CHROM", "est_mid")],
+                                                              .fun = function(x, y) x - y)
+    POSi_df$fract_dist <- 0
+    POSi_df$fract_dist[i_cent_neg] <- operate_by_factor_match(chrom_arms[, c("CHROM", "arm_1_cent")],
+                                                              POSi_df[i_cent_neg, c("CHROM", "dist_cent_mid")],
+                                                              .fun = function(x, y) y/x)  
+    POSi_df$fract_dist[!i_cent_neg] <- operate_by_factor_match(chrom_arms[, c("CHROM", "arm_2_cent")],
+                                                               POSi_df[!i_cent_neg, c("CHROM", "dist_cent_mid")],
+                                                               .fun = function(x, y) y/x)  
+    
+    POSi_df$dist_cent_mid_abs <- POSi_df$dist_cent_mid %>% round() %>% abs()
+    POSi_df$type <- factor(ifelse(POSi_df$isTerm, "Terminal", "Interstitial"))
+  }
+  return(POSi_df)
+}
+
+
+SliderCalc <- function(df, data_col, index_col, factor_col, 
+                       window_size, slide_interval, chrom_win = F, summary_stat, ...) {
   ## Takes in a dataframe containing a column of data values to be summarized within a window, an optional
   ## column of alternate indicies to apply the sliding window to, and a statistic to calculate within each
   ## window. Outputs a new dataframe with the summarized values and window indicies. The "summary_stat" can
   ## be one of the base R stats such as mean(), median(), min(), ect. which operates on a vector and outputs
   ## a single value
-  # df <- id_df
+  # df <- POSi_data_wHet
   df <- as.data.frame(df)
 
   if(missing("slide_interval")) {
@@ -1762,6 +1924,8 @@ SliderCalc <- function(df, data_col, index_col, factor_col, window_size, slide_i
   if(missing("index_col")) {
     pos_min <- 1
     pos_max <- nrow(df)
+  } else if(index_col == "POS") {
+    chrom_win <- T
   } else {
     pos_min <- min(df[, index_col])
     pos_max <- max(df[, index_col])
@@ -1780,7 +1944,7 @@ SliderCalc <- function(df, data_col, index_col, factor_col, window_size, slide_i
     if(length(i_c) != 0){
       chr_name <-  window_size[, i_c]
     }
-  } else{
+  } else {
     if(sum(pos_max < window_size | pos_max < slide_interval) != 0) {
       return("Window too big for data")
     }
@@ -1790,18 +1954,49 @@ SliderCalc <- function(df, data_col, index_col, factor_col, window_size, slide_i
       start_index <- c()
       end_index <- c()
       chr_index <- c()
-      for(ch in 1:nrow(chrom_bound_BY)) {
-        # ch = 16
-        chrom_wndws_start <- c(seq(from = chrom_bound_BY[ch, 1], 
-                                   to = chrom_bound_BY[ch, 2], 
-                                   by = slide_interval))
-        chrom_wndws_end <- c(chrom_wndws_start[-length(chrom_wndws_start)] + window_size - 1, chrom_bound_BY[ch, 2])
-        chrom_chr <- rep(ch, length(chrom_wndws_start))
-        start_index <- c(start_index, chrom_wndws_start)
-        end_index <- c(end_index, chrom_wndws_end)
-        chr_index <- c(chr_index, chrom_chr)
+      if(index_col == "POS") {
+        for(ch in 1:nrow(chrom_bound_BY)) {
+          # ch = 1
+          chrom_wndws_start <- c(seq(from = 1, 
+                                     to = chrom_bound_BY$length[ch], 
+                                     by = slide_interval))
+          chrom_wndws_end <- chrom_wndws_start + window_size - 1
+          make_up <- (max(chrom_wndws_end) - chrom_df$length[ch])/(length(chrom_wndws_end) - 1)
+          offsets <- round(cumsum(rep(make_up, (length(chrom_wndws_end) - 1))))
+          chrom_wndws_start[-1] <- chrom_wndws_start[-1] - offsets
+          chrom_wndws_end[-1] <- chrom_wndws_end[-1] - offsets
+          chrom_chr <- rep(ch, length(chrom_wndws_start))
+          start_index <- c(start_index, chrom_wndws_start)
+          end_index <- c(end_index, chrom_wndws_end)
+          chr_index <- c(chr_index, chrom_chr)
+        }
+        chr_name <- str_pad(chr_index, width = 2, pad = "0")
+        chr_window_df <- data.frame(CHROM = chr_name, 
+                                    start = start_index, end = end_index, 
+                                    chr_index = chr_index)
+      } else if(index_col == "POSi") {
+        for(ch in 1:nrow(chrom_bound_BY)) {
+          # ch = 16
+          chrom_wndws_start <- c(seq(from = chrom_df$Start[ch], 
+                                     to = chrom_df$End[ch], 
+                                     by = slide_interval))
+          chrom_wndws_end <- chrom_wndws_start + window_size - 1
+          make_up <- (max(chrom_wndws_end) - chrom_df$End[ch])/(length(chrom_wndws_end) - 1)
+          offsets <- round(cumsum(rep(make_up, (length(chrom_wndws_end) - 1))))
+          chrom_wndws_start[-1] <- chrom_wndws_start[-1] - offsets
+          chrom_wndws_end[-1] <- chrom_wndws_end[-1] - offsets
+          chrom_chr <- rep(ch, length(chrom_wndws_start))
+          start_index <- c(start_index, chrom_wndws_start)
+          end_index <- c(end_index, chrom_wndws_end)
+          chr_index <- c(chr_index, chrom_chr)
       }
       chr_name <- str_pad(chr_index, width = 2, pad = "0")
+      chr_window_df <- data.frame(CHROM = chr_name, 
+                                  start = start_index, end = end_index, 
+                                  chr_index = chr_index)
+      } else {
+        print("Chromosome windows must index POS or POSi")
+      }
     } else {
       start_index <- seq(from = pos_min, to = pos_max, by = slide_interval)
       end_index <- start_index + window_size - 1
@@ -1810,32 +2005,56 @@ SliderCalc <- function(df, data_col, index_col, factor_col, window_size, slide_i
   if (missing("factor_col")) {
     if(missing("index_col")) {
       pos_idx <- 1:nrow(df)
+      win_smry <- c()
+      n_vec <- c()
+      for (w in seq_along(start_index)) {
+        # w = 18
+        win_i <- pos_idx >= start_index[w] & pos_idx <= end_index[w]
+        n_ele <- sum(win_i)
+        win_smry <- c(win_smry, summary_stat(df[win_i, data_col], na.rm = T))
+        n_vec <- c(n_vec, n_ele)
+      }
+      slider_out <- data.frame(start = start_index, end = end_index, 
+                               n_elements = n_vec, value = win_smry)
+      colnames(slider_out)[4] <- data_col
+    } else if(index_col == "POS") {
+      win_smry <- c()
+      n_vec <- c()
+      for (w in 1:nrow(chr_window_df)) {
+        # w = 1
+        win_i <- df[, index_col] >= chr_window_df$start[w] & 
+          df[, index_col] <= chr_window_df$end[w] & 
+          df$CHROM == chr_window_df$CHROM[w]
+        n_ele <- sum(win_i)
+        win_smry <- c(win_smry, summary_stat(df[win_i, data_col], na.rm = T))
+        n_vec <- c(n_vec, n_ele)
+      }
+      slider_out <- cbind(chr_window_df[, -4], n_elements = n_vec, value = win_smry)
+      colnames(slider_out)[5] <- data_col
     } else {
       pos_idx <- df[, index_col]
-    }
-    win_smry <- c()
-    n_vec <- c()
-    for (w in seq_along(start_index)) {
-      # w = 18
-      win_i <- pos_idx >= start_index[w] & pos_idx <= end_index[w]
-      n_ele <- sum(win_i)
-      win_smry <- c(win_smry, summary_stat(df[win_i, data_col], na.rm = T))
-      n_vec <- c(n_vec, n_ele)
-    }
-    if(chrom_win) {
-      slider_out <- data.frame(start = start_index, end = end_index, 
-                            CHROM = chr_name,
-                            n_elements = n_vec, value = win_smry)
-      colnames(slider_out)[5] <- data_col
-      
-    } else {
-      slider_out <- data.frame(start = start_index, end = end_index, 
-                            n_elements = n_vec, value = win_smry)
-      colnames(slider_out)[4] <- data_col
+      win_smry <- c()
+      n_vec <- c()
+      for (w in seq_along(start_index)) {
+        # w = 18
+        win_i <- pos_idx >= start_index[w] & pos_idx <= end_index[w]
+        n_ele <- sum(win_i)
+        win_smry <- c(win_smry, summary_stat(df[win_i, data_col], na.rm = T))
+        n_vec <- c(n_vec, n_ele)
+      }
+      if(chrom_win) {
+        slider_out <- data.frame(start = start_index, end = end_index, 
+                                 CHROM = chr_name,
+                                 n_elements = n_vec, value = win_smry)
+        colnames(slider_out)[5] <- data_col
+      } else {
+        slider_out <- data.frame(start = start_index, end = end_index, 
+                                 n_elements = n_vec, value = win_smry)
+        colnames(slider_out)[4] <- data_col
+      }
     }
     return(slider_out)
   }
-  
   else {
     df[, factor_col] <- droplevels(df[, factor_col])
     slider_out <- data.frame(NULL)
@@ -1843,28 +2062,54 @@ SliderCalc <- function(df, data_col, index_col, factor_col, window_size, slide_i
       df_sub <- subset(df, df[,factor_col] == f)
       if(missing("index_col")) {
         pos_idx <- 1:nrow(df_sub)
-      } else {
-        pos_idx <- df_sub[, index_col]
-      }
-      win_smry <- c()
-      n_vec <- c()
-      for (w in seq_along(start_index)) {
-        # w = 18
-        win_i <- pos_idx >= start_index[w] & pos_idx <= end_index[w]
-        n_ele <- sum(win_i)
-        win_smry <- c(win_smry, summary_stat(df_sub[win_i, data_col], na.rm = T))
-        n_vec <- c(n_vec, n_ele)
-      }
-      if(chrom_win) {
-        smry_df <- data.frame(factor_col = f, start = start_index, end = end_index, 
-                              CHROM = chr_name,
-                              n_elements = n_vec, value = win_smry)
-        colnames(smry_df)[c(1, 6)] <- c(factor_col, data_col)
-        
-      } else {
+        win_smry <- c()
+        n_vec <- c()
+        for (w in seq_along(start_index)) {
+          # w = 18
+          win_i <- pos_idx >= start_index[w] & pos_idx <= end_index[w]
+          n_ele <- sum(win_i)
+          win_smry <- c(win_smry, summary_stat(df_sub[win_i, data_col], na.rm = T))
+          n_vec <- c(n_vec, n_ele)
+        }
         smry_df <- data.frame(factor_col = f, start = start_index, end = end_index, 
                               n_elements = n_vec, value = win_smry)
         colnames(smry_df)[c(1, 5)] <- c(factor_col, data_col)
+      } else if(index_col == "POS") {
+        win_smry <- c()
+        n_vec <- c()
+        for (w in 1:nrow(chr_window_df)) {
+          # w = 1
+          win_i <- df[, index_col] >= chr_window_df$start[w] & 
+            df[, index_col] <= chr_window_df$end[w] & 
+            df$CHROM == chr_window_df$CHROM[w]
+            n_ele <- sum(win_i)
+            win_smry <- c(win_smry, summary_stat(df[win_i, data_col], na.rm = T))
+            n_vec <- c(n_vec, n_ele)
+        }
+        smry_df <- cbind(factor_col = f, chr_window_df[, -4], n_elements = n_vec, value = win_smry)
+        colnames(smry_df)[c(1, 6)] <- c(factor_col, data_col)
+      } else {
+        pos_idx <- df_sub[, index_col]
+        win_smry <- c()
+        n_vec <- c()
+        for (w in seq_along(start_index)) {
+          # w = 18
+          win_i <- pos_idx >= start_index[w] & pos_idx <= end_index[w]
+          n_ele <- sum(win_i)
+          win_smry <- c(win_smry, summary_stat(df_sub[win_i, data_col], na.rm = T))
+          n_vec <- c(n_vec, n_ele)
+        }
+        if(chrom_win) {
+          smry_df <- data.frame(factor_col = f, start = start_index, end = end_index, 
+                                CHROM = chr_name,
+                                n_elements = n_vec, value = win_smry)
+          colnames(smry_df)[c(1, 6)] <- c(factor_col, data_col)
+          
+        } else {
+          smry_df <- data.frame(factor_col = f, start = start_index, end = end_index, 
+                                n_elements = n_vec, value = win_smry)
+          colnames(smry_df)[c(1, 5)] <- c(factor_col, data_col)
+        }
       }
       slider_out <- rbind(slider_out, smry_df)
     }
@@ -1969,7 +2214,8 @@ GetRateAndData <- function(ancHet_in, by_GT = F, include_het = T, three_sites = 
   return(t_runs_all)
 }
 
-LOHrateSW <- function(t_pos_df, by_GT = F, win = 50000, chrom_df = chrom_bound_BY, rm_zero_valids = F) {
+LOHrateSW <- function(t_pos_df, by_GT = F, win = 50000, slide_dist = 50000, 
+                      chrom_df = chrom_bound_BY, rm_zero_valids = F) {
   # t_pos_df <- POSi_data_wHet
   if(sum(t_pos_df$value == 2) == 0) {
     print("Heterozygous markers required for analysis")
@@ -1978,45 +2224,53 @@ LOHrateSW <- function(t_pos_df, by_GT = F, win = 50000, chrom_df = chrom_bound_B
   if (is.numeric(win)) {
     gen_wndws_df <- data.frame(NULL)
     for(ch in 1:nrow(chrom_df)) {
-      # ch = 2
-      chrom_wndws <- c(seq(from = chrom_df[ch, 1], 
-                           to = chrom_df[ch, 2], 
-                           by = win))
-      if (ch == nrow(chrom_df)) {
-        chrom_wndws <- c(chrom_wndws, chrom_df[ch, 2])
-      }
-      chrom_wndws_df <- data.frame(POSi = chrom_wndws,
-                                   CHROM = str_pad(chrom_df[ch, 3], width = 2, pad = "0"),
-                                   POS = chrom_wndws - chrom_df[ch, 1] + 1)
+      # ch = 1
+      chrom_wndws_start <- c(seq(from = chrom_df$Start[ch], 
+                           to = chrom_df$End[ch], 
+                           by = slide_dist))
+      chrom_wndws_end <- chrom_wndws_start + win - 1
+      make_up <- (max(chrom_wndws_end) - chrom_df$End[ch])/(length(chrom_wndws_end) - 1)
+      offsets <- round(cumsum(rep(make_up, (length(chrom_wndws_end) - 1))))
+      chrom_wndws_start[-1] <- chrom_wndws_start[-1] - offsets
+      chrom_wndws_end[-1] <- chrom_wndws_end[-1] - offsets
+      chrom_wndws <- data.frame(start_POSi = chrom_wndws_start, end_POSi = chrom_wndws_end)
+      # if (ch == nrow(chrom_df)) {
+      #   chrom_wndws <- c(chrom_wndws, chrom_df[ch, 2])
+      # }
+      chrom_wndws_df <- data.frame(start_POSi = chrom_wndws$start_POSi,
+                                   end_POSi = chrom_wndws$end_POSi,
+                                   CHROM = as.character(chrom_df$CHROM[ch]),
+                                   start_POS = chrom_wndws$start_POSi - chrom_df$Start[ch] + 1,
+                                   end_POS = chrom_wndws$end_POSi - chrom_df$Start[ch] + 1)
       gen_wndws_df <- rbind(gen_wndws_df, chrom_wndws_df)
     }
   } else {
     if (win == "CHROM") {
       # win = "CHROM"
-      gen_wndws_df <- data.frame(POSi = c(chrom_df[, 1], chrom_df[nrow(chrom_df), 2] + 1),
-                                 CHROM = c(str_pad(chrom_df$CHROM, width = 2, pad = "0"), 
-                                           str_pad(chrom_df$CHROM[nrow(chrom_df)], width = 2, pad = "0")),
-                                 POS =  c(chrom_df[, 2], chrom_df[nrow(chrom_df), 2] + 1))
+      gen_wndws_df <- data.frame(start_POSi = chrom_df[, "Start"],
+                                 end_POSi = chrom_df[, "End"],
+                                 CHROM = as.character(chrom_df$CHROM),
+                                 start_POS = 1,
+                                 end_POS = chrom_df[, "length"],)
       
     } else if (win == "CHROM/3") {
       gen_wndws_df <- data.frame(NULL)
-      ch_len <- chrom_df[, 2] - chrom_df[, 1]
+      ch_len <- chrom_df$length
       for(ch in 1:16) {
-        # ch = 3
-        chrom_wndws <- c(chrom_df[ch, 1],
+        # ch = 2
+        chrom_wndws_start <- c(chrom_df[ch, 1],
                          chrom_df[ch, 1] + ceiling(ch_len[ch]/3), 
                          chrom_df[ch, 1] + ceiling(ch_len[ch]*2/3))
-        
-        chrom_wndws_df <- data.frame(POSi = chrom_wndws,
-                                     CHROM = chrom_df[ch, 3],
-                                     CHROM3 = paste0(chrom_df[ch, 3], "_", 1:3),
-                                     POS = chrom_wndws - chrom_df[ch, 1] + 1)
+        chrom_wndws_end <- c((chrom_wndws_start[-1] - 1),chrom_df$End[ch])
+        chrom_wndws <- data.frame(start_POSi = chrom_wndws_start, end_POSi = chrom_wndws_end)
+        chrom_wndws_df <- data.frame(start_POSi = chrom_wndws$start_POSi,
+                                     end_POSi = chrom_wndws$end_POSi,
+                                     CHROM = as.character(chrom_df$CHROM[ch]), 
+                                     CHROM3 = paste0(as.character(chrom_df$CHROM[ch]), "_", 1:3),
+                                     start_POS = chrom_wndws$start_POSi - chrom_df$Start[ch] + 1,
+                                     end_POS = chrom_wndws$end_POSi - chrom_df$Start[ch] + 1)
         gen_wndws_df <- rbind(gen_wndws_df, chrom_wndws_df)
       }
-      chrom_wndws_df <- data.frame(POSi = chrom_df[nrow(chrom_df), 2] + 1,
-                                   CHROM = chrom_df[nrow(chrom_df), 3],
-                                   CHROM3 = paste0(chrom_df[nrow(chrom_df), 3], "_", 4),
-                                   POS = chrom_df[nrow(chrom_df), 2] - chrom_df[nrow(chrom_df), 1] + 1)
       gen_wndws_df <- rbind(gen_wndws_df, chrom_wndws_df)
     } else {
       print("Window not recognized")
@@ -2026,7 +2280,7 @@ LOHrateSW <- function(t_pos_df, by_GT = F, win = 50000, chrom_df = chrom_bound_B
   full_sw_df <- data.frame(NULL)
   t_pos_df$ID <- factor(t_pos_df$ID)
   for (id in levels(t_pos_df$ID)) {
-    # id = "F_A02"
+    # id = "F_A05"
     # t_pos_id <- POSi_data_wHet %>% filter(ID == "F_A07")
     t_pos_id <- t_pos_df %>% filter(ID == id)
     r_het_df <- t_pos_id %>% filter(value == 2)
@@ -2034,64 +2288,79 @@ LOHrateSW <- function(t_pos_df, by_GT = F, win = 50000, chrom_df = chrom_bound_B
     # r_neg_df <- t_pos_id %>% filter(value == 0)
     # id_df_o <- id_df
     if(win == "CHROM/3") {
-      id_df <- data.frame(ID = id, POSi = 0, CHROM = "C", CHROM3 = "C3", POS = 0, n_sites = 0, LOH_rate = 0, prop_valid = 0)
+      id_df <- data.frame(ID = id, 
+                          start_POSi = 0, end_POSi = 0,
+                          CHROM = "C", CHROM3 = "C3", 
+                          start_POS = 0, end_POS = 0,
+                          n_sites = 0, LOH_rate = 0, prop_valid = 0)
     } else {
-      id_df <- data.frame(ID = id, POSi = 0, CHROM = "C", POS = 0, n_sites = 0, LOH_rate = 0, prop_valid = 0)
+      id_df <- data.frame(ID = id, 
+                          start_POSi = 0, end_POSi = 0,
+                          CHROM = "C", 
+                          start_POS = 0, end_POS = 0,
+                          n_sites = 0, LOH_rate = 0, prop_valid = 0)
     }
-    for(w in 1:(nrow(gen_wndws_df)-1)) {
+    for(w in 1:(nrow(gen_wndws_df))) {
       # w = nrow(gen_wndws_df)-1
-      # w <- 16
+      # w <- 5
       # Calculate the number of t_i = 1 (Hom) sites for each window
-      r_out_idx <- r_pos_df$est_start <= gen_wndws_df$POSi[w] & r_pos_df$est_end > gen_wndws_df$POSi[w+1]
+      r_out_idx <- r_pos_df$est_start <= gen_wndws_df$start_POSi[w] & 
+        r_pos_df$est_end >= gen_wndws_df$end_POSi[w]
       if (sum(r_out_idx) == 0) {
-        r_in_idx <- r_pos_df$est_start >= gen_wndws_df$POSi[w] & r_pos_df$est_end < gen_wndws_df$POSi[w+1]
+        r_in_idx <- r_pos_df$est_start >= gen_wndws_df$start_POSi[w] & 
+          r_pos_df$est_end <= gen_wndws_df$end_POSi[w]
         n_r_in <- sum(r_pos_df$est_length[r_in_idx])
-        r_lead_idx <- r_pos_df$est_start < gen_wndws_df$POSi[w] & 
-          r_pos_df$est_end >= gen_wndws_df$POSi[w] &
-          r_pos_df$est_end < gen_wndws_df$POSi[w + 1]
+        r_lead_idx <- r_pos_df$est_start < gen_wndws_df$start_POSi[w] & 
+          r_pos_df$est_end >= gen_wndws_df$start_POSi[w] &
+          r_pos_df$est_end <= gen_wndws_df$end_POSi[w]
         if(sum(r_lead_idx) > 0) {
-          n_r_lead <- r_pos_df$est_end[r_lead_idx] - gen_wndws_df$POSi[w] + 1
+          n_r_lead <- r_pos_df$est_end[r_lead_idx] - gen_wndws_df$start_POSi[w] + 1
         } else {
           n_r_lead <- 0
         }
-        r_trail_idx <- r_pos_df$est_start >= gen_wndws_df$POSi[w] & 
-          r_pos_df$est_start < gen_wndws_df$POSi[w + 1] & 
-          r_pos_df$est_end > gen_wndws_df$POSi[w + 1]
+        r_trail_idx <- r_pos_df$est_start >= gen_wndws_df$start_POSi[w] & 
+          r_pos_df$est_start < gen_wndws_df$end_POSi[w] & 
+          r_pos_df$est_end > gen_wndws_df$end_POSi[w]
         if(sum(r_trail_idx) > 0) {
-          n_r_trail <- gen_wndws_df$POSi[w + 1] - r_pos_df$est_start[r_trail_idx]
+          n_r_trail <- gen_wndws_df$end_POSi[w] - r_pos_df$est_start[r_trail_idx]
         } else {
           n_r_trail <- 0
         }
         n_r_wndw <- sum(n_r_in, n_r_lead, n_r_trail)
       } else {
-        n_r_wndw <- gen_wndws_df$POSi[w+1] - gen_wndws_df$POSi[w]
+        n_r_wndw <- gen_wndws_df$end_POSi[w] - gen_wndws_df$start_POSi[w]
       }
-      # w = 62
+      # w = 249
       # Calculate the number of t_i = 2 (Het) sites for each window
-      neg_out_idx <- r_het_df$est_start <= gen_wndws_df$POSi[w] & r_het_df$est_end > gen_wndws_df$POSi[w+1]
+      neg_out_idx <- r_het_df$est_start <= gen_wndws_df$start_POSi[w] & r_het_df$est_end >= gen_wndws_df$end_POSi[w]
       if (sum(neg_out_idx) == 0) {
-        neg_in_idx <- r_het_df$est_start >= gen_wndws_df$POSi[w] & r_het_df$est_end < gen_wndws_df$POSi[w+1]
+        neg_in_idx <- r_het_df$est_start >= gen_wndws_df$start_POSi[w] & r_het_df$est_end <= gen_wndws_df$end_POSi[w]
         n_neg_in <- sum(r_het_df$est_length[neg_in_idx])
-        neg_lead_idx <- r_het_df$est_start < gen_wndws_df$POSi[w] & 
-          r_het_df$est_end >= gen_wndws_df$POSi[w] &
-          r_het_df$est_end < gen_wndws_df$POSi[w+1]
-        n_neg_lead <- r_het_df$est_end[neg_lead_idx] - gen_wndws_df$POSi[w] + 1
-        neg_trail_idx <- r_het_df$est_start >= gen_wndws_df$POSi[w] & 
-          r_het_df$est_start < gen_wndws_df$POSi[w+1] & 
-          r_het_df$est_end > gen_wndws_df$POSi[w+1]
-        n_neg_trail <- gen_wndws_df$POSi[w+1] - r_het_df$est_start[neg_trail_idx]
+        neg_lead_idx <- r_het_df$est_start <= gen_wndws_df$start_POSi[w] & 
+          r_het_df$est_end >= gen_wndws_df$start_POSi[w] &
+          r_het_df$est_end <= gen_wndws_df$end_POSi[w]
+        n_neg_lead <- r_het_df$est_end[neg_lead_idx] - gen_wndws_df$start_POSi[w] + 1
+        neg_trail_idx <- r_het_df$est_start >= gen_wndws_df$start_POSi[w] & 
+          r_het_df$est_start <= gen_wndws_df$end_POSi[w] & 
+          r_het_df$est_end >= gen_wndws_df$end_POSi[w]
+        n_neg_trail <- gen_wndws_df$end_POSi[w] - r_het_df$est_start[neg_trail_idx]
         n_neg_wndw <- sum(n_neg_in, n_neg_lead, n_neg_trail)
       } else {
-        n_neg_wndw <- gen_wndws_df$POSi[w+1] - gen_wndws_df$POSi[w]
+        n_neg_wndw <- gen_wndws_df$end_POSi[w] - gen_wndws_df$start_POSi[w]
       }
       n_site <- n_r_wndw + n_neg_wndw
       LOHrate <- n_r_wndw / n_site
-      prop_d <- n_site / (gen_wndws_df$POSi[w+1] - gen_wndws_df$POSi[w])
+      prop_d <- n_site / (gen_wndws_df$end_POSi[w] - gen_wndws_df$start_POSi[w])
       if(win == "CHROM/3") {
-        id_df[w, ] <- list(id, gen_wndws_df$POSi[w], gen_wndws_df$CHROM[w],
-                           gen_wndws_df$CHROM3[w], gen_wndws_df$POS[w], n_site, LOHrate, prop_d)
+        id_df[w, ] <- list(id, gen_wndws_df$start_POSi[w], gen_wndws_df$end_POSi[w],
+                           gen_wndws_df$CHROM[w], gen_wndws_df$CHROM3[w], 
+                           gen_wndws_df$start_POS[w], gen_wndws_df$end_POS[w], 
+                           n_site, LOHrate, prop_d)
       } else {
-        id_df[w, ] <- list(id, gen_wndws_df$POSi[w], gen_wndws_df$CHROM[w], gen_wndws_df$POS[w], n_site, LOHrate, prop_d)
+        id_df[w, ] <- list(id, gen_wndws_df$start_POSi[w], gen_wndws_df$end_POSi[w],
+                           gen_wndws_df$CHROM[w], 
+                           gen_wndws_df$start_POS[w], gen_wndws_df$end_POS[w], 
+                           n_site, LOHrate, prop_d)
       }
     }
     if(rm_zero_valids) {

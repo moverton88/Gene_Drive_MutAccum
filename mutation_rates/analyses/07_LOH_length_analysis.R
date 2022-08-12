@@ -3,50 +3,347 @@
 
 # Distribution of LOH lengths by treatment and interstitial or terminal
 ###############################################################################
+all_LOHbounds_merge_NS$Tx_ID <- Recode_Tx_ID(all_LOHbounds_merge_NS$Tx, "Tx")
+Length_data_in <- all_LOHbounds_merge_NS
 
-Length_data_in <- all_LOHbounds_merge_EC %>%
-  # filter(!(start_POSi %in% prob_sites | end_POSi %in% prob_sites)) %>% 
-  filter(GT %in% c("0/0", "1/1"))
+Length_data_in$Tx_ID <- Recode_Tx_ID(Length_data_in$Tx)
 
 Length_data_in$type <- factor(ifelse(Length_data_in$isTerm, 
                                           "Terminal", "Interstitial"))
+
+LOH_type_xTx <- all_LOHcounts_merge_NS %>% 
+  group_by(Tx_ID) %>% 
+  summarize(n_iLOH = sum(n_Inter),
+            n_tLOH = sum(n_Term),
+            f_iLOH = sum(n_Inter)/sum(n_LOH),
+            mean_iLOH = mean(n_Inter),
+            mean_tLOH = mean(n_Term))
+
+LOH_type_xID <- all_LOHcounts_merge_NS %>% 
+  group_by(Tx_ID, ID) %>% 
+  summarize(n_iLOH = sum(n_Inter),
+            n_tLOH = sum(n_Term),
+            f_iLOH = sum(n_Inter)/sum(n_LOH))
+
+  
+iLOH_CIs <- data.frame(NULL)
+for(tx in Tx_ID_levels) {
+  tx_n_LOH <- LOH_type_xID %>% filter(Tx_ID == tx) %>% pull(n_iLOH)
+  tx_boot <- boot(tx_n_LOH, statistic = mean.fun, R = 10000)
+  tx_boot_CI <- boot.ci(boot.out = tx_boot, conf = 0.95,
+                        type = "basic")$basic[4:5]
+  tx_CI <- data.frame(Tx_ID = tx, low95CI = tx_boot_CI[1], up95CI = tx_boot_CI[2])
+  iLOH_CIs <- rbind(iLOH_CIs, tx_CI)
+}
+
+tLOH_CIs <- data.frame(NULL)
+for(tx in Tx_ID_levels) {
+  tx_n_LOH <- LOH_type_xID %>% filter(Tx_ID == tx) %>% pull(n_tLOH)
+  tx_boot <- boot(tx_n_LOH, statistic = mean.fun, R = 10000)
+  tx_boot_CI <- boot.ci(boot.out = tx_boot, conf = 0.95,
+                        type = "basic")$basic[4:5]
+  tx_CI <- data.frame(Tx_ID = tx, low95CI = tx_boot_CI[1], up95CI = tx_boot_CI[2])
+  tLOH_CIs <- rbind(tLOH_CIs, tx_CI)
+}
+
+LOH_type_xTx <- merge(LOH_type_xTx, iLOH_CIs, by = "Tx_ID")
+LOH_type_xTx <- merge(LOH_type_xTx, tLOH_CIs, by = "Tx_ID", suffixes = c("_i", "_t"))
+LOH_type_xTx <- LOH_type_xTx %>% arrange(Tx_ID)
+LOH_type_xID$Tx_ID <- Recode_Tx_ID(LOH_type_xID$Tx_ID, "Tx_ID")
+
+iLOH_xn_count <- LOH_type_xID %>% count(Tx_ID, n_iLOH)
+tLOH_xn_count <- LOH_type_xID %>% count(Tx_ID, n_tLOH)
+
+iLOH_xn_count$d_clones <- operate_by_factor_match(n_clones_LOH_xTx[, c("Tx_ID", "n")], 
+                                                iLOH_xn_count[, c("Tx_ID", "n")], 
+                                               .fun = function(x, y) y/x)
+
+tLOH_xn_count$d_clones <- operate_by_factor_match(n_clones_LOH_xTx[, c("Tx_ID", "n")], 
+                                                  tLOH_xn_count[, c("Tx_ID", "n")], 
+                                                  .fun = function(x, y) y/x)
+
+chisq.test(t(LOH_type_xTx[, 2:3]))
+
+LOH_type_aov <- aov(f_iLOH ~ Tx_ID, data = LOH_type_xID)
+summary(LOH_type_aov)
+
+Tx_combos <- expand.grid(Tx_1 = c("W", "C", "D"), 
+                         Tx_2 = c("W", "C", "D"), 
+                         LOH = c("n_iLOH", "n_tLOH")) %>% 
+  filter(as.numeric(Tx_1) < as.numeric(Tx_2)) %>% 
+  mutate(Tx_1 = as.character(Tx_1),
+         Tx_2 = as.character(Tx_2),
+         LOH = as.character(LOH),
+         combo = paste0(Tx_1, "_", Tx_2, "_", LOH))
+
+Tx_combos <- expand.grid(Tx_1 = c("W"), 
+                         Tx_2 = c("C", "D"), 
+                         LOH = c("n_iLOH", "n_tLOH")) %>% 
+  # filter(as.numeric(Tx_1) < as.numeric(Tx_2)) %>% 
+  mutate(Tx_1 = as.character(Tx_1),
+         Tx_2 = as.character(Tx_2),
+         LOH = as.character(LOH),
+         combo = paste0(Tx_1, "_", Tx_2, "_", LOH))
+
+Tx_combos_list <- nest(.data = Tx_combos, combos = -combo)$combos %>% as.list()
+names(Tx_combos_list) <- Tx_combos$combo
+
+LOH_type_p <- lapply(Tx_combos_list, function(x) perm_test(LOH_type_xID,
+                                             cat_var = "Tx_ID", 
+                                             cat_names = c(unlist(x[1]), unlist(x[2])),
+                                             response_var = unlist(x[3]),
+                                             rtrn = "p"))
+
+p.adjust(unlist(LOH_type_p), method = "BH")
+# LOH_type_p_df <- data.frame(combo = names(Tx_combos_list), 
+#                             p_value = matrix(LOH_type_p))
+# BHcorrection(LOH_type_p_df, "p_value")
+LOH_type_xID %>% 
+  pivot_longer(cols = c(n_iLOH, n_tLOH), 
+               names_to = "type", values_to = "n_LOH") %>%
+  mutate(type = factor(type)) %>%
+  group_by(Tx_ID) %>%
+  group_modify(~ as.data.frame(lm(n_LOH ~ type, data = .x)))
+
+summary(lm(n_tLOH ~ n_iLOH + Tx_ID, data = LOH_type_xID %>% filter(Tx_ID != "C")))
+
+LOH_type_plot <- LOH_type_xID %>% 
+  filter(Tx_ID != "D") %>%
+  ggplot(aes(x = n_iLOH, y = n_tLOH, color = Tx_ID)) + 
+  stat_smooth(method = "lm", fill = "grey70", alpha = 0.2) +
+  geom_jitter(height = 0.3, width = 0.3, size = 3.5, alpha = 0.8) +
+  scale_x_continuous(breaks = 0:10, name = "Number of interstitial LOH events") +
+  scale_y_continuous(breaks = 0:10, name = "Number of terminal LOH events") +
+  # xlab("Number of interstitial LOH events") +
+  # ylab("Number of terminal LOH events") +
+  scale_color_manual(values = txPal, name = "Strain") +
+  theme(panel.grid.minor = element_blank(),
+        text = element_text(size = 28),
+        legend.position = c(0.1, 0.9),
+        legend.background = element_rect(fill = "white", color = "white"))
+
+LOH_type_plot
+
+y_pos_mean_i <- max(iLOH_xn_count$n)
+y_space_i <- 2
+
+iLOH_density <- iLOH_xn_count %>% 
+  filter(Tx_ID != "D") %>%
+  ggplot() +
+  geom_col(aes(x = n_iLOH, y = n, fill = Tx_ID, color = Tx_ID), 
+                 alpha = 0.7,
+                 position = position_dodge(preserve = "single", width = 0.8), width = 0.8) +
+  # geom_point(data = LOH_type_xTx, 
+  #            aes(x = mean_iLOH, y = y_pos_mean_i + (4 - as.numeric(Tx_ID)) * y_space_i,
+  #                color = Tx_ID),
+  #            size = 5) +
+  # geom_segment(data = LOH_type_xTx, 
+  #            aes(x = low95CI_i, xend = up95CI_i, 
+  #                y = y_pos_mean_i + (4 - as.numeric(Tx_ID)) * y_space_i, 
+  #                yend = y_pos_mean_i + (4 - as.numeric(Tx_ID)) * y_space_i,
+  #                color = Tx_ID),
+  #            size = 1) +
+  scale_fill_manual(values = txPal, guide = "none") +
+  scale_color_manual(values = txPal, guide = "none") +
+  scale_x_continuous(breaks = seq(0, max(iLOH_xn_count$n_iLOH + 1), 1)) +
+  scale_y_continuous(breaks = seq(0, y_pos_mean_i, 5)) +
+  theme(panel.grid = element_blank(),
+        axis.text.x = element_blank(),
+        axis.title = element_blank())
+
+y_pos_mean_t <- max(tLOH_xn_count$n)
+y_space_t <- 2
+
+tLOH_density <- tLOH_xn_count %>% 
+  filter(Tx_ID != "D") %>%
+  ggplot() +
+  geom_col(aes(x = n_tLOH, y = n, fill = Tx_ID, color = Tx_ID), 
+           alpha = 0.7,
+           position = position_dodge(preserve = "single", width = 0.8), width = 0.8) +
+  # geom_point(data = LOH_type_xTx, 
+  #            aes(x = mean_tLOH, y = y_pos_mean_t + as.numeric(Tx_ID) * y_space_t,
+  #                color = Tx_ID),
+  #            size = 5) +
+  # geom_segment(data = LOH_type_xTx, 
+  #              aes(x = low95CI_t, xend = up95CI_t, 
+  #                  y = y_pos_mean_t + as.numeric(Tx_ID) * y_space_t, 
+  #                  yend = y_pos_mean_t + as.numeric(Tx_ID) * y_space_t,
+  #                  color = Tx_ID),
+  #              size = 1) +
+  scale_fill_manual(values = txPal, guide = "none") +
+  scale_color_manual(values = txPal, guide = "none") +
+  scale_x_continuous(breaks = seq(0, max(iLOH_xn_count$n_iLOH + 1), 1)) +
+  scale_y_continuous(breaks = seq(0, y_pos_mean_t, 5)) +
+  theme(panel.grid = element_blank(),
+        axis.text.y = element_blank(),
+        axis.title = element_blank()) +
+  coord_flip()
+
+
+LOH_type_plot_1 <- iLOH_density + plot_spacer() + LOH_type_plot + tLOH_density + 
+  plot_layout(ncol = 2, nrow = 2, 
+    widths = c(4, 1), heights = c(1, 4)) 
+
+ggsave(file.path(outIntDir, "iLOHvstLOH_counts_1_2022_05.png"), 
+       plot = LOH_type_plot_1,
+       device = "png",
+       width = 11, height = 8.5, 
+       units = "in",
+       dpi = 600)
 
 Length_data_in$err_type <- factor(ifelse(Length_data_in$is_error, 
                                        "single_error", 
                                        ifelse(Length_data_in$length == 1, 
                                               "single", "multiple")))
 
-length_dist_hist <- Length_data_in %>% 
+# Length_data_in$Tx_ID <- Recode_Tx_ID(Length_data_in$Tx_ID, "Tx_ID")
+
+# Length_data_in %>%
+#   group_by(Tx_ID) %>%
+#   mutate(d = n)
+
+###############################################################################
+# Comparison of length distributions
+
+LOH_length_ecd <- Length_data_in %>%
+  ggplot() +
+  # geom_polygon(data = ecd_sig_region, aes(x = POS/1000, y = n, fill = Tx_name)) +
+  stat_ecdf(aes(x = log10(est_length), color = Tx_ID)) + 
+  # geom_segment(data = ecd_bracket,
+  #              aes(x = POS/1000, xend = POS/1000, y = y_lo, yend = y_hi)) +
+  # geom_label(data = ad_label, aes(x = 10 , y = 0.85, label = sig, color = Tx_2), 
+  #            size = 9, hjust = "left", label.size = 0, show.legend = F) +
+  # geom_point(data = marker_set, aes(x = POS/1000, y = -0.05), shape = "|", size = 0.5) +
+  # stat_ecdf(aes(x = POSi), color = "red", size = 0.3) + 
+  scale_color_manual(values = txPal, name = "Strain") + 
+  xlab("Chromosome Position (kbp)") + 
+  ylab("Cumulative Fraction of LOH events") +
+  scale_x_continuous(expand = c(0.01, 0.01)) +
+  # facet_wrap(~rom_CHROM, ncol = 4, scales = "free_x") +
+  theme(
+    # panel.grid.minor.y = element_blank(), 
+    # panel.grid.minor.x = element_blank(),
+    # panel.background = element_rect(color="grey80"),
+    text = element_text(size = 24))
+
+LOH_length_ecd
+
+LOH_length_type_wass <- wass_test(Length_data_in %>% filter(!isTerm) %>% pull(est_length),
+                                  Length_data_in %>% filter(isTerm) %>% pull(est_length), 
+                                  nboots = 5000)
+
+LOH_length_type_wcx <- wilcox.test(Length_data_in %>% filter(!isTerm) %>% pull(est_length),
+                                  Length_data_in %>% filter(isTerm) %>% pull(est_length))
+
+all_LOH_length_wass <- data.frame(NULL)
+
+for(ty in levels(Length_data_in$type)){
+  type_LOH_length_wass <- data.frame(type = ty, Combo = with(Tx_ID_combo, paste(Tx_1, Tx_2, sep = "-")),
+                                    Tx_1 = Tx_ID_combo[, 1], Tx_2 = Tx_ID_combo[, 2],
+                                    W_stat = 0, W_pVal = 0, X_stat = 0, X_pVal = 0)
+  n_c <- ncol(type_LOH_length_wass)
+  for(tx in 1:nrow(Tx_ID_combo)){
+    # tx = 1
+    Tx_1 <- Tx_ID_combo$Tx_1[tx]
+    Tx_2 <- Tx_ID_combo$Tx_2[tx]
+    LOH_1 <- Length_data_in %>% 
+      filter(Tx_ID == Tx_1, type == ty) %>% 
+      select(Tx_ID, ID, est_length)
+    LOH_2 <- Length_data_in %>% 
+      filter(Tx_ID == Tx_2, type == ty) %>% 
+      select(Tx_ID, ID, est_length)
+    # AD_LOHcounts$Tx_ID <- droplevels(AD_LOHcounts$Tx_ID)
+    length_wass <- wass_test(LOH_1$est_length, LOH_2$est_length, nboots = 5000)
+    length_wcx <- wilcox.test(LOH_1$est_length, LOH_2$est_length)
+    type_LOH_length_wass[tx, c(n_c - 3, n_c - 2)] <- length_wass[1:2]
+    type_LOH_length_wass[tx, c(n_c - 1)] <- length_wcx$statistic
+    type_LOH_length_wass[tx, c(n_c)] <- length_wcx$p.value
+  }
+  all_LOH_length_wass <- rbind(all_LOH_length_wass, type_LOH_length_wass)
+}
+
+all_LOH_length_wass
+all_LOH_length_wass_slim <- all_LOH_length_wass %>% filter(Combo != "C-D")
+all_LOH_length_wass_slim <- BHcorrection(all_LOH_length_wass_slim)
+all_LOH_length_wass_slim$p_adjust <- p.adjust(all_LOH_length_wass_slim$pVal, method = "BH")
+
+hist_group <- function(x, b = seq(1, 6.5, 0.2)) {
+  return(data.frame(hist(log10(x), breaks = b, plot = F)[2:4]))
+  # data.frame(breaks = h$breaks, mids = h$mids counts = h$counts, density = h$density)
+}
+
+length_hist <- Length_data_in %>% 
+  group_by(type, Tx_ID) %>% 
+  group_modify(~hist_group(.x$est_length), .keep = T) %>%
+  mutate(freq = counts/sum(counts))
+
+length_med_xTx <- Length_data_in %>% 
+  group_by(type) %>% 
+  # group_by(Tx_ID, type) %>% 
+  summarize(m = median(est_length), .groups = "keep")
+
+type_label <- data.frame(.x = 1.5, .y = c(0.21, 0.31),
+                         type = factor(c("Interstitial", "Terminal")), 
+                         l = factor(c("Interstitial LOH", "Terminal LOH")))
+
+length_dist_hist <- #length_hist %>% 
+  Length_data_in %>%
   # filter(Tx_name == "WT") %>%
   # filter(!is_error) %>%
   # filter(!isTerm) %>%
   # count(LOH_cmplx)
   # summarize(m = median(est_length))
-  ggplot() + geom_histogram(aes(x = log10(est_length), fill = err_type),
-                            binwidth = 0.25, color = "grey20") + 
-  scale_fill_manual(values = c("grey40", "dodgerblue3", "brown3"), 
-                    name = "markers") +
+  ggplot() + 
+  geom_label(data = type_label, aes(x = .x, y = .y, label = l),
+             label.size = 0, size = 9) +
+  # geom_label(data = n_clones_LOH_xTx, aes(x = 6.25, y = 0.28, label = Tx_ID),
+  #            label.size = 0, size = 9) +
+  geom_histogram(aes(x = log10(est_length), y = stat(density*width),
+                     fill = Tx_ID),
+                 position = position_dodge2(width = 1, preserve = "single", padding = 0),
+                 binwidth = 1/4, color = "grey20", size = 0.25) +
+  geom_histogram(aes(x = log10(est_length), y = stat(density*width)),
+                 binwidth = 1/4, color = "brown4", size = 0.75, fill = "white", alpha = 0) +
+  # geom_vline(data = length_med_xTx, aes(xintercept = m), color = "blue3") +
+  # geom_col(aes(x = mids, y = freq,
+  #                    fill = Tx_ID), 
+  #                position = position_dodge2(width = 1, preserve = "single", padding = 0),
+  #                color = "grey20") + 
+  scale_fill_manual(values = txPal, name = "Strain") +
+  # scale_alpha_discrete(range = c(0.8, 0.3), name = "LOH Type") +
   scale_x_continuous(name = "LOH length (bp)", breaks = seq(2, 6, 1), 
-                     labels = formatC(10^seq(2, 6, 1), 1, format = "E")) +
-  ylab("Number of LOH events") +
-  # facet_grid(type~.) +
+                     labels = format_sci_10_log
+                     ) +
+  # guides(fill = "none") +
+  ylab("Proportion of Events") +
+  # facet_grid(Tx_ID~.) +
+  facet_grid(type~., scales = "free_y") +
   # facet_grid(is_error~.) +
-  facet_grid(Tx_name~.) +
-  theme(legend.position = "bottom",
-        text = element_text(size = 14))
+  # facet_grid(Tx_ID~type) +
+  theme(legend.position = c(0.9, 0.92),
+        text = element_text(size = 28),
+        strip.text = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.grid.major.y = element_blank())
 
 length_dist_hist
 
-ggsave(file.path(outIntDir, "LOH_lengthDist_hist.png"), 
+ggsave(file.path(outIntDir, "LOH_lengthDist_hist_2022_05.png"), 
        plot = length_dist_hist,
        device = "png",
-       width = 11, height = 8.5, 
+       width = 16, height = 12, 
        units = "in",
        dpi = 600)
 
-Length_data_in$err_type <- factor(Length_data_in$err_type, 
-                                  levels = c("single_error", 
-                                             "single", "multiple"))
+Length_data_in %>% 
+  filter(est_length > 10^6)
+  filter(est_length > 10^4.1, est_length < 10^4.5, Tx_ID == "D") %>% 
+  count(isTerm)
+
+# Length_data_in$err_type <- factor(Length_data_in$err_type, 
+#                                   levels = c("single_error", 
+#                                              "single", "multiple"))
+
 marker_type_dist <- Length_data_in %>% 
   count(Tx_name, err_type) %>% group_by(Tx_name) %>%
   mutate(fract_n = n/sum(n)) %>%
@@ -64,27 +361,27 @@ marker_type_dist <- Length_data_in %>%
 
 marker_type_dist
 
-Length_data_in %>% count(Tx_name) %>% pull(n) %>% min()
-n_LOH_xTx <- all_LOHcounts_merge_EC %>% group_by(Tx_name) %>% summarize(n = sum(n_LOH))
-n_error_xTx <- all_LOHcounts_merge %>% group_by(Tx_name) %>% summarize(n = sum(n_LOH))
-all_LOHbounds_merge_EC %>% 
+Length_data_in %>% count(Tx_ID) %>% pull(n) %>% min()
+n_LOH_xTx <- all_LOHcounts_merge_NS %>% group_by(Tx_ID) %>% summarize(n = sum(n_LOH))
+# n_error_xTx <- all_LOHcounts_merge %>% group_by(Tx_ID) %>% summarize(n = sum(n_LOH))
+all_GTbounds_merge %>% 
   filter(GT != "0/1") %>%
   filter(length == 1) %>%
-  count(Tx_name, is_error) %>% group_by(Tx_name) %>% summarize(percent_err = n/sum(n))
+  count(Tx_ID, is_error) %>% group_by(Tx_ID) %>% summarize(percent_err = n/sum(n))
   pivot_wider(names_from = is_error, names_prefix = "err_", values_from = n) %>%
   mutate(percent_err = err_TRUE/(err_FALSE + err_TRUE))
 
   
   
 lengthEC_dist_hist <- Length_data_in %>% 
-  group_by(Tx_name) %>%
+  group_by(Tx_ID) %>%
   slice_sample(n = min(n_LOH_xTx$n), replace = F) %>%
   # filter(!is_error) %>% 
-  filter(!isTerm) %>%
+  # filter(!isTerm) %>%
   # group_by(isTerm) %>%
   # count(LOH_cmplx)
   # summarize(m = median(est_length))
-  ggplot() + geom_histogram(aes(x = log10(est_length), fill = err_type),
+  ggplot() + geom_histogram(aes(x = log10(est_length), fill = type),
                             binwidth = 0.25, color = "grey20") + 
   scale_fill_manual(values = c("grey40", "dodgerblue3","brown3"), 
                     name = "markers") +
@@ -92,7 +389,7 @@ lengthEC_dist_hist <- Length_data_in %>%
                      labels = formatC(10^seq(2, 6, 1), 1, format = "E")) +
   ylab("Number of LOH events") +
   # facet_grid(type~.) +
-  facet_grid(Tx_name~.) +
+  facet_grid(Tx_ID~type) +
   theme(legend.position = "bottom",
         text = element_text(size = 14))
 
@@ -106,7 +403,6 @@ ggsave(file.path(outIntDir, "LOH_lengthDistEC_hist.png"),
        dpi = 600)
 
 lengthEC_dist_hist_xTx <- Length_data_in %>% 
-  filter(!is_error) %>% 
   # filter(!is_error) %>%
   # group_by(isTerm) %>%
   # count(LOH_cmplx)
@@ -119,7 +415,7 @@ lengthEC_dist_hist_xTx <- Length_data_in %>%
                      labels = formatC(10^seq(2, 6, 1), 1, format = "E")) +
   ylab("Number of LOH events") +
   # facet_grid(type~.) +
-  facet_grid(Tx_name~.) +
+  facet_grid(Tx_ID~.) +
   theme(legend.position = "bottom",
         text = element_text(size = 14))
 
@@ -134,7 +430,8 @@ ggsave(file.path(outIntDir, "lengthEC_dist_hist_xTx.png"),
 
 
 ###############################################################################
-Length_data_cln <- Length_data_in %>% filter(!is_error)
+Length_data_cln <- Length_data_in # %>% 
+  # filter(!is_error)
 Length_data_N <- Length_data_cln %>% filter(Tx_name == "WT")
 Length_data_H <- Length_data_cln %>% filter(Tx_name == "Cas9")
 Length_data_F <- Length_data_cln %>% filter(Tx_name == "Drive")
@@ -218,19 +515,20 @@ AD_label <- c(paste0("Anderson-Darling Test",
 # AD test end #################################################################
 
 all_med_len <- Length_data_cln %>% 
-  group_by(type, Tx_name) %>% 
+  group_by(type, Tx_ID) %>% 
   summarise(med_len = median(est_length))
 
-label_df <- data.frame(est_length = c(100000, 50), cum_prop = 0.25, Tx_name = "WT", type = c("Interstitial", "Terminal"))
+label_df <- data.frame(est_length = c(100000, 50), cum_prop = 0.25, 
+                       Tx_ID = "D", type = c("Interstitial", "Terminal"))
 
 LOH_lengthDist <- Length_data_cln %>% 
   ggplot() + 
-  geom_vline(data = all_med_len, aes(xintercept = med_len, color = Tx_name), size = 0.25) +
-  geom_label_repel(data = all_med_len, aes(x = med_len, y = 1, color = Tx_name, label = round(med_len)), 
+  geom_vline(data = all_med_len, aes(xintercept = med_len, color = Tx_ID), size = 0.25) +
+  geom_label_repel(data = all_med_len, aes(x = med_len, y = 1, color = Tx_ID, label = round(med_len)), 
                    label.size = 0, box.padding = unit(0.3, "lines"), ylim = c(1.03, 1.07), key_glyph = "rect") +
-  geom_label(data = label_df, aes(x = est_length, y = cum_prop, label = KS_label),
-             hjust = 0, label.size = 0) +
-  stat_ecdf(aes(x = est_length, color = Tx_name), pad = F) +
+  # geom_label(data = label_df, aes(x = est_length, y = cum_prop, label = KS_label),
+  #            hjust = 0, label.size = 0) +
+  stat_ecdf(aes(x = est_length, color = Tx_ID), pad = F) +
   scale_color_manual(values = txPal, name = "Drive type") +
   # scale_linetype_manual(name = "LOH type", values = c("solid", "dashed")) +
   scale_x_log10(breaks = c(1E0, 1E1, 1E2, 1E3, 1E4, 1E5, 1E6), limits = c(10, 2E6)) +
@@ -255,7 +553,7 @@ Length_data_cln %>%
   filter(CHROM == "05") %>%
   # filter(type == "Interstitial") %>%
   ggplot() + 
-  geom_histogram(aes(x = log(est_length), fill = Tx_name), binwidth = 0.33) +
+  geom_histogram(aes(x = log10(est_length), fill = Tx_ID), binwidth = 0.33) +
   scale_fill_manual(values = txPal, name = "Drive type") +
   # scale_y_continuous(expand = c(0, 0), limits = c(0, 1.1)) +
   # ylab("Cumulative proportion") + 
@@ -264,7 +562,7 @@ Length_data_cln %>%
         panel.background = element_rect(color = "grey70"),
         text = element_text(size = 14),
         legend.position = "bottom") +
-  facet_grid(Tx_name~., scales = "free_x")
+  facet_grid(Tx_ID~., scales = "free_x")
 
 
 ###############################################################################
@@ -275,10 +573,11 @@ LOH_type_counts <- all_LOHcounts_merge_EC %>%
   group_by(Tx_name) %>% 
   summarise(sum_i = sum(n_Inter), sum_t = sum(n_Term), ratio = sum(n_Inter)/sum(n_Term))
 
-M <- as.table(rbind(c(762, 327, 468), c(484, 239, 477)))
-dimnames(M) <- list(gender = c("F", "M"),
-                    party = c("Democrat","Independent", "Republican"))
-Xsq <- chisq.test(M)
+# M <- as.table(rbind(c(762, 327, 468), c(484, 239, 477)))
+# dimnames(M) <- list(gender = c("F", "M"),
+#                     party = c("Democrat","Independent", "Republican"))
+# Xsq <- chisq.test(M)
+
 LOH_type_counts_table <- as.table(as.matrix(LOH_type_counts[, 2:3]))
 
 chisq.test(LOH_type_counts_table[-2, ])
@@ -403,17 +702,18 @@ LOH_type_counts_tx$fTerm <- LOH_type_counts_tx$term/(LOH_type_counts_tx$term + L
 Length_data_in %>% 
   filter(length == 1) %>% 
   # select(start_POSi, GT) %>% 
-  count(start_POSi, GT) %>% filter(n >= 2) %>% ggplot() + geom_histogram(aes(x = n), binwidth = 1)
+  count(start_POSi, GT) %>% filter(n >= 2) %>% ggplot() + 
+  geom_histogram(aes(x = n), binwidth = 1)
 
 #####
 # Length distribution by genotype ----
 GT_med_len <- Length_data_in %>% 
-  filter(GT != "0/1") %>%
+  # filter(GT != "0/1") %>%
   group_by(isTerm, GT) %>% 
   summarise(med_len = round(median(est_length)))
   
 LOH_lengthDist_GT <- Length_data_in %>% 
-  filter(GT != "0/1") %>%
+  # filter(GT != "0/1") %>%
   ggplot(aes(x = est_length, linetype = isTerm, color = GT)) + 
   geom_vline(data = GT_med_len, aes(xintercept = med_len, color = GT, linetype = isTerm), size = 0.25) +
   geom_label_repel(data = GT_med_len, aes(x = med_len, y = 1, color = GT, label = med_len), 
@@ -437,12 +737,12 @@ ggsave(file.path(outIntDir, "LOH_lengthDist_xGT.png"),
        dpi = 600)
 
 length_med_xTx <- Length_data_in %>% 
-  group_by(Tx_name, isTerm) %>% summarize(m = round(median(est_length)))
+  group_by(Tx_ID, isTerm) %>% summarize(m = round(median(est_length)))
 
 LOH_lengthDist_log <- Length_data_in %>%
-  ggplot(aes(x = est_length, color = Tx_name, linetype = isTerm)) + 
-  geom_vline(data = length_med_xTx, aes(xintercept = m, color = Tx_name, linetype = isTerm), size = 0.25) +
-  geom_label_repel(data = length_med_xTx, aes(x = m, y = 1, color = Tx_name, label = m), 
+  ggplot(aes(x = est_length, color = Tx_ID, linetype = isTerm)) + 
+  geom_vline(data = length_med_xTx, aes(xintercept = m, color = Tx_ID, linetype = isTerm), size = 0.25) +
+  geom_label_repel(data = length_med_xTx, aes(x = m, y = 1, color = Tx_ID, label = m), 
                    label.size = 0, box.padding = unit(0.5, "lines"), ylim = c(1, 1.05), key_glyph = "rect") + 
   stat_ecdf(pad = F) +
   scale_color_manual(values = txPal, name = "Drive Type") +
@@ -468,19 +768,24 @@ ggsave(file.path(outIntDir, "LOH_lengthDist_log.png"),
 # Average LOH length vs no of LOH for each clone --------------
 
 LOH_medianLength <- Length_data_cln %>% 
-  group_by(Tx_name, ID) %>% 
-  summarise(med_len = median(est_length))
+  group_by(Tx_ID, ID) %>% 
+  summarise(med_len = median(est_length),
+            mean_len = mean(est_length),
+            med_log_len = mean(log10(est_length)))
 
 LOH_n <- Length_data_cln %>%
-  group_by(Tx_name, ID) %>% count(Tx_name, ID)
+  # group_by(Tx_ID, ID) %>% 
+  count(Tx_ID, ID)
 
-all_LOHcounts_err %>% arrange(desc(n_LOH))
+LOH_medianLength <- merge(LOH_medianLength, LOH_n, by = c("Tx_ID", "ID"), all = T)
 
-Length_data_cln %>% filter(ID == "N_E06")
+LOH_len_n_lm <- lm(n ~ log10(med_len), data = LOH_medianLength)
+summary(LOH_len_n_lm)
 
-LOH_lenVsN <- ggplot(LOH_medianLength) + 
-  geom_hline(aes(yintercept = 0), size = 0.15) +
-  geom_jitter(aes(log10(LOH_medianLength$med_len), LOH_n$n, color = Tx_name), height = 0.2, width = 0.2) +
+LOH_lenVsN <- ggplot(LOH_medianLength, aes(log10(med_len), n)) + 
+  # geom_hline(aes(yintercept = 0), size = 0.15) +
+  geom_smooth(method = "lm", fill = "grey80") +
+  geom_jitter(aes(color = Tx_ID), height = 0.2, width = 0) +
   xlab("log(median LOH length)") + ylab("Number of LOH Events") +
   xlim(c(1, NA)) + #scale_x_log10() +
   scale_color_manual(values = txPal)
@@ -494,6 +799,8 @@ ggsave(file.path(outIntDir, "LOH_lenVsN.png"),
        units = "in",
        dpi = 300)
 
+
+# UNUSED ######################################################################
 
 # For each LOH type, iLOH and tLOH, distribution of positions along chromosome ----
 
@@ -637,9 +944,6 @@ all_ancHet %>%
                  binwidth = 10000,
                  position = position_dodge2(preserve = "total")) +
   scale_fill_manual(values = txPal)
-
-
-# UNUSED ######################################################################
 
 
 evo_homRuns_srt <- evo_homRuns_cln %>% dplyr::arrange(Tx, chrom_n, midPOSi), GT)
