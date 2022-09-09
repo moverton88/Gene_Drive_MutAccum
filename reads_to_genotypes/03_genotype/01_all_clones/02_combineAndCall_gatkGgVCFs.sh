@@ -13,16 +13,16 @@ if [ ${lineage} == all ] ; then
     export gVCFlist=${gVCFdir}/${lineage}_gVCFlist.list
     dir ${gVCFdir}/*${alignTag}.g.vcf > ${gVCFlist}
 
-    export founderList=${gVCFdir}/${lineage}_founderList.list
+    export founderList=${gVCFdir}/${lineage}_${alignTag}_founders.list
     
-    for founder in ${gVCFdir}/Anc*.g.vcf; do
+    for founder in ${gVCFdir}/L000*${alignTag}*.g.vcf; do
     # for founder in ${gVCFdir}/*00*.g.vcf; do
         export index=$(basename "${founder}" .g.vcf)
-        export id=${index%%_*}
+        export id=${index%%_*}_${alignRef}
         # export id=${index:0:5}
         # export id=Anc_RM
         echo $id
-        # echo $id >> ${founderList}
+        echo $id >> ${founderList}
     done
     else
         export gVCFlist=${gVCFdir}/${lineage}_gVCFlist.list
@@ -44,12 +44,12 @@ java -jar -Xmx16g $GATK CombineGVCFs  \
     -R $refSeq \
     --variant $gVCFlist \
     --founder-id ${founderList} \
-    -O ${lineVCFdir}/${lineage}_multi.g.vcf.gz
+    -O ${lineVCF}
 
 if [ -z ${intervalFile} ]; then
     java -jar -Xmx16g $GATK GenotypeGVCFs \
         -R $refSeq \
-        -V ${lineVCFdir}/${lineage}_multi.g.vcf.gz \
+        -V ${lineVCF} \
         --founder-id ${founderList} \
         -O ${VCFout}
 fi
@@ -57,7 +57,7 @@ fi
 if [ ! -z ${intervalFile} ]; then
     java -jar -Xmx16g $GATK GenotypeGVCFs \
         -R $refSeq \
-        -V ${lineVCFdir}/${lineage}_multi.g.vcf.gz \
+        -V ${lineVCF} \
         --founder-id ${lineage}00 \
         -L $intervalFile \
         -all-sites true \

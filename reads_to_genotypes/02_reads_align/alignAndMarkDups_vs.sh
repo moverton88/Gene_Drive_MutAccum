@@ -23,7 +23,7 @@ fi
 # ${INDEX} used for naming alignments. Output is sorted bam alignment
 # -I, -X flag give the minimum, maximum valid gap between paired reads
 # samtools view -h [include header] -b [bam output] -u [uncompressed .bam] | sort -m [memory allocated] -o [output file] -T [temp files]
-bowtie2 --rg-id ${index} --rg SM:${index} --sensitive-local -I 100 -X 1000 \
+bowtie2 --rg-id ${index} --rg SM:${index} --very-sensitive-local -I 100 -X 1000 \
 -x ${refPrefix} -1 ${R1PFILE} -2 ${R2PFILE} -U "${R1UFILE},${R2UFILE}" \
 | samtools view -h -b -u | samtools sort -m 10000000 -o ${bamRaw} -O bam -T ${bamDir}/temp_dir/${index}
 

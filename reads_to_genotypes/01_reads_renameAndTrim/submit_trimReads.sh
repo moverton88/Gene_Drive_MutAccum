@@ -3,11 +3,12 @@
 # Script for submitting a set of fastq read files and a trimming script to the remote Cluster.
 # Set dir variables
 # seqRun=MAseq3
-export rawDir=/oasis/tscc/scratch/mioverto/LOH_methods/Pankajam_etal_2020/reads/raw
+# proj=Sui_etal_2020
+export rawDir=/oasis/tscc/scratch/mioverto/LOH_methods/${proj}/reads/raw
 # export rawDir=/oasis/tscc/scratch/mioverto/geneDrive/reads/raw
 #${seqRun}
 # readsTrimDir=${readsRawDir/raw/test}
-export trimDir=/oasis/tscc/scratch/mioverto/LOH_methods/Pankajam_etal_2020/reads/trim
+export trimDir=/oasis/tscc/scratch/mioverto/LOH_methods/${proj}/reads/trim
 export logDir=/oasis/tscc/scratch/mioverto/LOH_methods/log/
 
 # Location of the trimmomatic execution dir

@@ -37,14 +37,14 @@ sed -e “s/^M//” $plan_file > $plan_crct
 # new_name=L_1
 
 while IFS="," read -r accNum ID || [[ -n "$accNum" ]]; do
-   echo "searching for $accNum"
-   echo "to replace with $ID"
+#    echo "searching for $accNum"
+#    echo "to replace with $ID"
 # done < "$plan_crct"
     acc=$(echo "$accNum")
     id=$(echo "$ID")
     # acc=SRR12442617
-    echo "$acc"
-    echo "$id"
+    # echo "$acc"
+    # echo "$id"
     # done < "$plan_crct"
     oldR1=$(find ./ -name "${acc}*1*")
     oldR2=$(find ./ -name "${acc}*2*")
@@ -55,22 +55,46 @@ while IFS="," read -r accNum ID || [[ -n "$accNum" ]]; do
         #newR1=${oldR1/${old_name}/${new_name}}
         newR1=$(echo "${id}_R1.${sfx}")
         echo "will rename ${oldR1} to ${newR1}"
-        # mv $oldR1 $newR1
+        mv $oldR1 $newR1
     fi
 # done < "$plan_crct"
     if [ -f "$oldR2" ]; then
         # newR2=${oldR2/${old_name}/${new_name}}
         newR2=$(echo ${id}_R2.${sfx})
         echo "will rename ${oldR2} to ${newR2}"
-        # mv ${oldR2} ${newR2}
+        mv ${oldR2} ${newR2}
     fi
 done < "$plan_crct"
 
 ```
 # manual correction
+acc=SRR12442664
+find ./ -name "${acc}*"
 
 old_nm=L24_S32_L002_R2_001.fastq.gz
 new_nm=N_B12_R2.fastq.gz
 mv $old_nm $new_nm
 
 ```
+SRR12442617
+SRR12442618
+SRR12442626
+SRR12442637
+SRR12442648
+SRR12442667
+SRR12442671
+SRR12442672
+SRR12442679
+SRR12442680
+SRR12442686
+SRR12442688
+SRR12442690
+SRR12442691
+SRR12442696
+SRR12442697
+SRR12442698
+SRR12442699
+SRR12442702
+SRR12442703
+SRR12442705
+

@@ -5,15 +5,14 @@
 # BY = BY reference
 # BYm = BY masked reference
 # Cas9 = Cas9 gRNA construct
-export alignRef=RM
+export alignRef=YJM
 export callRef=${alignRef}
 
-export alignTag="default"
+export alignTag="sensitive"
 export tag="allVar"
 # _local
 
 # export intervalFile=/home/mioverto/geneDrive/POS_files/${callRef}_POS.bed
-
 
 if [[ ${callRef} == RM ]] ; then
         export refSeq=/home/mioverto/geneDrive/refseq/RM/RM_refseq_UCSD_2020_v4.fna
@@ -21,16 +20,25 @@ if [[ ${callRef} == RM ]] ; then
     elif [[ ${callRef} == BY ]] ; then
         export refSeq=/home/mioverto/geneDrive/refseq/BY/S288C_R64_refseq.fna
         echo "found BY ref"
+    elif [[ ${callRef} == W303 ]] ; then
+        export refSeq=/home/mioverto/LOH_methods/refseq/W303/W303_refseq.fna
+        echo "found W303 ref"
+    elif [[ ${callRef} == YJM ]] ; then
+        export refSeq=/home/mioverto/LOH_methods/refseq/YJM789/YJM789_refseq.fna
+        echo "found YJM ref"
     else
     echo "alignment reference not found"
 fi
 
-projDir=/oasis/tscc/scratch/mioverto/LOH_methods/Pankajam_etal_2020
+proj=Sui_etal_2020
+projDir=/oasis/tscc/scratch/mioverto/LOH_methods/${proj}
+lineage=L
 # projDir=/oasis/tscc/scratch/mioverto/geneDrive/dualRef
-if [[ ${alignRef} == BY || ${alignRef} == RM ]] ; then
+if [[ ${alignRef} == BY || ${alignRef} == RM || ${alignRef} == W303 || ${alignRef} == YJM ]] ; then
         export bamDir=${projDir}/${alignRef}_aligned/bam
         export gVCFdir=${projDir}/${alignRef}_aligned/variants/gVCFs
         export lineVCFdir=${projDir}/${alignRef}_aligned/variants/gVCFs/lineMulti
+        export lineVCF=${lineVCFdir}/${lineage}_${alignTag}_multi.g.vcf.gz
         export finalVCFdir=${projDir}/${alignRef}_aligned/variants/allVarVcfs
     elif [[ ${alignRef} == Cas9_N ]] ; then
         export bamDir=/oasis/tscc/scratch/mioverto/geneDrive/Cas9/bam
@@ -63,15 +71,15 @@ export DATE=$(date +'%m_%d_%Y')
 # Submitting jobs in a loop for files that have not been created yet
 # Wildcard must include only founder "00" ID, as the script bases 
 # lineage groups on this
-lineage=L
 
-for gVCF in ${gVCFdir}/*.g.vcf; do
+
+for gVCF in ${gVCFdir}/L000*${tag}*.g.vcf; do
     export index=$(basename "${gVCF}" .g.vcf)
     # export lineage=${index:0:3}
     # export VCFout=${finalVCFdir}/${lineage}_${alignRef}a${callRef}c_${alignTag}_${tag}.vcf
     export VCFout=${finalVCFdir}/${lineage}_${alignRef}_${alignTag}_${tag}.vcf
     echo Submitting combine and call $(basename "${VCFout}")
-# done
+done
     qsub \
         -V \
         -N genotype_${lineage} \

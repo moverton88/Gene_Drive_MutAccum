@@ -1,14 +1,14 @@
 
 
-alignRef=RM
+ref=RM
 
-export bamDir=/oasis/tscc/scratch/mioverto/geneDrive/dualRef/${alignRef}_aligned/bam
+export bamDir=/oasis/tscc/scratch/mioverto/geneDrive/dualRef/${ref}_aligned/bam
 export metricDir=${bamDir}/depth_metrics
 
-if [[ ${alignRef} == RM ]] ; then
+if [[ ${ref} == RM ]] ; then
     export refSeq=/home/mioverto/geneDrive/refseq/RM/RM_refseq_UCSD_2020_v4.fna
     echo "found RM ref"
-elif [[ ${alignRef} == BY ]] ; then
+elif [[ ${ref} == BY ]] ; then
     export refSeq=/home/mioverto/geneDrive/refseq/BY/S288C_R64_refseq.fna
     echo "found BY ref"
 fi
