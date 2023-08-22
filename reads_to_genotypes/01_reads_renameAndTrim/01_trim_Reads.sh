@@ -52,9 +52,9 @@ java -jar ${TRIMMO} PE \
    ${trimR1P} ${trimR1U} \
    ${trimR2P} ${trimR2U} \
    ILLUMINACLIP:${ADAPTER}:2:30:8 \
-   LEADING:10 \
-   TRAILING:10 \
-   HEADCROP:15 \
+   LEADING:${lead} \
+   TRAILING:${trail} \
+   HEADCROP:${head} \
    SLIDINGWINDOW:6:10 \
    MINLEN:30
 

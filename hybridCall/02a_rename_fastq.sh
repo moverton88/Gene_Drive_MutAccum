@@ -1,4 +1,24 @@
 #!/bin/bash
+#PBS -A mioverto
+#PBS -l nodes=1 
+#PBS -l walltime=24:00:00
+
+while getopts 'r:p:' OPTION; do
+   case "$OPTION" in
+   r)
+      rename_dir="$OPTARG"
+      echo "Directory of files to be renamed \n $OPTARG"
+      ;;
+
+   p)
+      plan_file="${OPTARG}"
+      echo "File with 'old' and 'new' names $OPTARG"
+      ;;
+
+   ?)
+        echo "script usage: $(basename \$0) [-r renamedir] [-p planfile]"
+    esac
+done
 
 ###############################################################################
 # Run in interactive mode #
@@ -8,19 +28,12 @@
 # to the new file names old_name must be a filename without the extention. 
 # It must identify a single sample, but will rename paired-read files
 
-export proj=Dutta_etal_2021
-export rename_dir=/oasis/tscc/scratch/mioverto/LOH_methods/${proj}/parents/reads/raw
-# export rename_dir=/oasis/tscc/scratch/mioverto/LOH_methods/Pankajam_etal_2020/reads
-# export rename_dir=/oasis/tscc/scratch/mioverto/geneDrive/reads/raw/
+# export rename_dir=${readsDir}
+# export rename_dir=${pReadsDir/}
 
-export plan_dir=/home/mioverto/LOH_methods/rename
-# export plan_dir=/home/mioverto/code/rename
+# export plan_file=${renameFile}
+# export plan_file=${pRenameFile}
 
-export plan_name=${proj}_planfile.csv
-# export plan_name=Pankajam_etal_2020_planfile.csv
-# export plan_name=masterPlanFile.csv
-
-export plan_file=${plan_dir}/${plan_name}
 export plan_crct=${plan_file/.csv/_crct.csv}
 
 cd $rename_dir
@@ -31,7 +44,7 @@ cd $rename_dir
 
 
 # in vim
-:%s/^M//g
+# :%s/^M//g
 
 # oldR1=SRR11460413_1.fastq
 # old_name=SRR11460413
@@ -50,7 +63,7 @@ while IFS="," read -r accNum ID || [[ -n "$accNum" ]]; do
         sfx="${base#*.}"
         newR1=$(echo "${id}_R1.${sfx}")
         echo "$oldR1 found, will rename to ${newR1}"
-        mv $oldR1 $newR1
+        mv ${oldR1} ${newR1}
     fi
 # done < "$plan_file"
     if [ -f "$oldR2" ]; then

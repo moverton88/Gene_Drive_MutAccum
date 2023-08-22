@@ -114,8 +114,8 @@ HC_multiVcfParse_allVar <- function(vcf_file., all_Alts = F, gVCF = F, info_cols
   }
   # Loop through sample genotype columns to parse into dataframe columns
   vtmp <- subset(vcf_parse, select = -c(CHROM, POS, POSi, REF, ALT, QUAL, INFO, FORMAT))
-  for (c in 1:ncol(vtmp)) {
-    # c=1
+  for (i in 1:ncol(vtmp)) {
+    # i=1
     col_suffix <- colnames(vtmp)[c]
     FrmtCols <- colsplit(vtmp[,c], ":", phsdColNames)
     FrmtCols$ID <- substr(col_suffix, 1, 5)
@@ -148,7 +148,7 @@ HC_multiVcfParse_allVar <- function(vcf_file., all_Alts = F, gVCF = F, info_cols
     sampleGTDP$GT <- factor(sampleGTDP$GT, levels=GTlvls)
     vcf_parse_sample <- cbind(pos_cols, sampleGTDP)
     print(paste0(FrmtCols$ID[1], " is done (", c, "/", ncol(vtmp), ")"))
-    if (c==1) {
+    if (i == 1) {
       vcf_parsed <- vcf_parse_sample
     } else {
       vcf_parsed <- rbind(vcf_parsed, vcf_parse_sample)
@@ -338,20 +338,22 @@ HC_multiVcfParse_LOH <- function(vcf_file., refSequence, all_Alts = F, refVarian
     #rm(chrom)
     chromNm <- levels(vcf_parse$CHROM)[chrom]
     idx <- vcf_parse$CHROM == chromNm
-    vcf_parse[idx,"POSi"] <- vcf_parse$POS[idx] + chrom_indcs[chrom-1]
+    vcf_parse[idx, "POSi"] <- vcf_parse$POS[idx] + chrom_indcs[chrom - 1]
   }
   # vcf_parse$chrom_n <- as.numeric(vcf_parse$CHROM)
   # place POSi column next to POS
-  vcf_parse <- cbind(subset(vcf_parse, select = c(CHROM, POS)), POSi=vcf_parse$POSi, subset(vcf_parse, select = -c(CHROM, POS, chrom_n, POSi)))
+  vcf_parse <- cbind(subset(vcf_parse, select = c(CHROM, POS)), 
+                     POSi = vcf_parse$POSi, 
+                     subset(vcf_parse, select = -c(CHROM, POS, chrom_n, POSi)))
   
   ## transform FORMAT field into genotype, read depth, and genotype likelihood columns
   phsdColNames <- c("GT", "AlleleDP", "TotDP", "GQ", "PGT", "PID", "PhredLike", "PS")
   # Loop through sample genotype columns to parse into dataframe columns
   vtmp <- subset(vcf_parse, select = -c(CHROM, POS, POSi, REF, ALT, QUAL, INFO, FORMAT))
-  for (c in 1:ncol(vtmp)) {
-    # c=1
-    col_suffix <- colnames(vtmp)[c]
-    FrmtCols <- colsplit(vtmp[,c], ":", phsdColNames)
+  for (i in 1:ncol(vtmp)) {
+    # i=1
+    col_suffix <- colnames(vtmp)[i]
+    FrmtCols <- colsplit(vtmp[,i], ":", phsdColNames)
     FrmtCols$ID <- substr(col_suffix, 1, 5)
     # in-phase genotypes are indicated by a "|", needs to be changed to "/" for consistency
     FrmtCols$GT <- gsub(pattern="|", replacement="/", FrmtCols$GT, fixed=T)
@@ -362,10 +364,10 @@ HC_multiVcfParse_LOH <- function(vcf_file., refSequence, all_Alts = F, refVarian
                           c("Alt1_DP", "Alt2_DP", "Alt3_DP", "Alt4_DP", "Alt5_DP", "Alt6_DP"))
     AltDPcols <- as.data.frame(lapply(AltDPcols, as.numeric))
     AltDPcols[is.na(AltDPcols)] <- 0
-    fract_Ref_v <- ADCols$Ref_DP/(ADCols$Ref_DP + AltDPcols[,1])
-    Sum_DP_v <- ADCols$Ref_DP + apply(AltDPcols, MARGIN=1, sum, na.rm=T)
+    fract_Ref_v <- ADCols$Ref_DP/(ADCols$Ref_DP + AltDPcols[, 1])
+    Sum_DP_v <- ADCols$Ref_DP + apply(AltDPcols, MARGIN = 1, sum, na.rm = T)
     
-    sampleGTDP <- cbind(GT=FrmtCols$GT, Ref_DP=as.numeric(ADCols[,1]), AltDPcols)
+    sampleGTDP <- cbind(GT=FrmtCols$GT, Ref_DP=as.numeric(ADCols[, 1]), AltDPcols)
     sampleGTDP <- cbind(sampleGTDP, Sum_DP=Sum_DP_v, 
                         fract_Ref=fract_Ref_v,
                         GQ=as.numeric(FrmtCols$GQ), ID=FrmtCols$ID)
@@ -373,8 +375,8 @@ HC_multiVcfParse_LOH <- function(vcf_file., refSequence, all_Alts = F, refVarian
                 "1/2", "1/3", "1/4", "2/2", "2/3", "2/4",
                 "3/3", "3/4", "4/4")
     sampleGTDP$GT <- factor(sampleGTDP$GT, levels=GTlvls)
-    vcf_parse_sample <- cbind(vcf_parse[,c(1:6)], sampleGTDP)
-    if (c==1) {
+    vcf_parse_sample <- cbind(vcf_parse[, c(1:6)], sampleGTDP)
+    if (i == 1) {
       vcf_parsed <- vcf_parse_sample
     } else {
       vcf_parsed <- rbind(vcf_parsed, vcf_parse_sample)
@@ -389,10 +391,10 @@ HC_multiVcfParse_LOH <- function(vcf_file., refSequence, all_Alts = F, refVarian
   ##### Parse multiple alternative alleles
   AltCols <- colsplit(vcf_parsed$ALT, ",", c("Alt1", "Alt2", "Alt3", "Alt4", "Alt5", "Alt6"))
   AltCols <- as.data.frame(lapply(AltCols, as.character))
-  AltCols <- replace(AltCols, AltCols=="", NA)
+  AltCols <- replace(AltCols, AltCols == "", NA)
   AltCols <- AltCols[colSums(!is.na(AltCols)) > 0]
   if (all_Alts == T) {
-    vcf_parsed <- cbind(vcf_parsed[,c(1:4)], 
+    vcf_parsed <- cbind(vcf_parsed[, c(1:4)], 
                         AltCols,
                         vcf_parsed[,6:8], 
                         AltDPcols[,altIndx > 0], 
@@ -416,7 +418,7 @@ HC_multiVcfParse_LOH <- function(vcf_file., refSequence, all_Alts = F, refVarian
     # refVariants <- RMxBYbcfVcf
     vcf_parsed <- merge(refVariants[,1:4], vcf_parsed, 
                         by=c("CHROM", "POS"), sort=T, 
-                        all.x=T, all.y=T, suffixes = c(".ref", ".cln"))
+                        all.x = T, all.y = T, suffixes = c(".ref", ".cln"))
   }
   return(vcf_parsed)
 }
@@ -748,8 +750,8 @@ bcf_multiVcfParse <- function(vcf_file., refSequence, all_Alts=F, refVariants=""
   phsdColNames <- c("GT", "PhredLike")
   # Loop through sample genotype columns to parse into dataframe columns
   vtmp <- vcf_parse[,8:ncol(vcf_parse)]
-  for (c in 1:ncol(vtmp)) {
-    # c=1
+  for (i in 1:ncol(vtmp)) {
+    # i=1
     col_suffix <- colnames(vtmp)[c]
     FrmtCols <- colsplit(vtmp[,c], ":", phsdColNames)
     FrmtCols$ID <- substr(col_suffix, 1, 5)
@@ -771,7 +773,7 @@ bcf_multiVcfParse <- function(vcf_file., refSequence, all_Alts=F, refVariants=""
     hetLike <- apply(hetLikes, MARGIN = 1, min)
     GTlikeCols$GTlike[GTlikeCols$GT=="0/1"] <- hetLike
     
-    if (c==1) {
+    if (i == 1) {
       vcf_parsed <- cbind(vcf_parse[,c(1:6)], sampleGTDP)
     } else {
       vcf_parsed <- rbind(vcf_parsed, sampleGTDP)

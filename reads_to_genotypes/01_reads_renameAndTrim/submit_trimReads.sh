@@ -4,15 +4,21 @@
 # Set dir variables
 # seqRun=MAseq3
 # proj=Sui_etal_2020
-export rawDir=/oasis/tscc/scratch/mioverto/LOH_methods/${proj}/reads/raw
+# export rawDir=/oasis/tscc/scratch/mioverto/LOH_methods/${proj}/reads/raw
+export rawDir=/oasis/tscc/scratch/mioverto/LOH_methods/${proj}/parents/reads/raw
 # export rawDir=/oasis/tscc/scratch/mioverto/geneDrive/reads/raw
 #${seqRun}
 # readsTrimDir=${readsRawDir/raw/test}
-export trimDir=/oasis/tscc/scratch/mioverto/LOH_methods/${proj}/reads/trim
+# export trimDir=/oasis/tscc/scratch/mioverto/LOH_methods/${proj}/reads/trim
+export trimDir=/oasis/tscc/scratch/mioverto/LOH_methods/${proj}/parents/reads/trim
 export logDir=/oasis/tscc/scratch/mioverto/LOH_methods/log/
 
 # Location of the trimmomatic execution dir
 export TRIMMO=/home/mioverto/bin/Trimmomatic-0.36/trimmomatic-0.36.jar
+export lead=30
+export trail=30
+export head=8
+
 # Location of the script that runs trimmomatic
 export script=/home/mioverto/code/trim/01_trim_reads.sh
 # Fasta of the Illumina adapter sequence to remove

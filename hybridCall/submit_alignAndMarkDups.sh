@@ -1,23 +1,4 @@
 #!/bin/bash
-
-##################################################################
-# CHOOSE SEQUENCING RUN DATASET ######################################
-# MAseq1
-# MAseq2
-# MAseq3
-# export seqRun=MAseq1
-
-##################################################################
-# CHOOSE REFERENCE SEQUENCE ######################################
-# RM = RM reference
-# BY = BY reference
-# BYm = BY reference with RM variant sites masked with Ns
-# Cas9 = Cas9 gRNA construct
-# W303 = 
-# YJM = YJM
-export ref=W303
-
-export proj=Sui_etal_2020
  
 export readsDir=/oasis/tscc/scratch/mioverto/LOH_methods/${proj}/reads/trim
 # export readsDir=/oasis/tscc/scratch/mioverto/geneDrive/reads/trim

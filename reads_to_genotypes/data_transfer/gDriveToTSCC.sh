@@ -1,11 +1,5 @@
 
 
-ssh mioverto@tscc-login.sdsc.edu
-
-
-    # Start an interactive session
-qsub -I -A svenkata
-
     # TSCC scratch drive to store bulk data 
 cd /oasis/tscc/scratch/mioverto/mutAccum/reads
 

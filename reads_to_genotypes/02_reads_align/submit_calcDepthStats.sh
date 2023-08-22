@@ -1,6 +1,7 @@
 
 
 ref=RM
+tag=sensitive
 
 export bamDir=/oasis/tscc/scratch/mioverto/geneDrive/dualRef/${ref}_aligned/bam
 export metricDir=${bamDir}/depth_metrics
