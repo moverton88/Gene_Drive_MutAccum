@@ -1,0 +1,18 @@
+#!/bin/bash
+#SBATCH --partition=hotel
+#SBATCH --qos=hotel
+#SBATCH --nodes=1
+#SBATCH --ntasks-per-node=1
+#SBATCH --time=01:00:00
+#SBATCH --account=htl100
+#SBATCH --get-user-env
+#SBATCH --job-name=qc_reads
+
+
+
+###############################################################################
+# script setup ################################################################
+# readsFile=${readsDir}/F_A00_R1.fastq.gz
+# outDir=${readsDir}/fastQC
+$fastqc -j $java -o $outDir  --extract --delete ${readsFile} ${readsFile/R1/R2}
+

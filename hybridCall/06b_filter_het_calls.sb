@@ -1,0 +1,31 @@
+#!/bin/bash
+#SBATCH --partition=hotel
+#SBATCH --qos=hotel
+#SBATCH --nodes=1
+#SBATCH --ntasks-per-node=1
+#SBATCH --time=12:00:00
+#SBATCH --account=htl100
+#SBATCH --get-user-env
+#SBATCH --job-name=filter_hets
+
+
+
+
+
+###############################################################################
+# Section start ###############################################################
+
+
+module load cpu/0.17.3 gcc/10.2.0-2ml3m2l r
+
+filter_hets_script=${codeDir}/06b_filter_het_calls.R
+
+# SNPs_input <- "/tscc/lustre/ddn/scratch/mioverto/LOH_methods/Dutta_etal/variants/final/S288C/H01_S288C_singlRef_SNPs.RData"
+# model_input <- "/tscc/lustre/ddn/scratch/mioverto/LOH_methods/Overton_etal/variants/final/Dual/all_BYxRM_hetTrain.RData"
+# model_type <- "v"
+# FE_rate <- 0.05
+# SNPs_output <- "/tscc/lustre/ddn/scratch/mioverto/LOH_methods/Dutta_etal/variants/final/S288C/H01_S288C_singlRef_SNPs.RData"
+
+
+Rscript $filter_hets_script -s $SNPs_input -m $model_input -t $model_type -r $FE_rate -S $SNPs_output
+

@@ -1,24 +1,14 @@
 #!/bin/bash
-#PBS -A mioverto
-#PBS -l nodes=1 
-#PBS -l walltime=24:00:00
 
-while getopts 'r:p:' OPTION; do
-   case "$OPTION" in
-   r)
-      rename_dir="$OPTARG"
-      echo "Directory of files to be renamed \n $OPTARG"
-      ;;
+#SBATCH --partition=hotel
+#SBATCH --qos=hotel
+#SBATCH --nodes=1
+#SBATCH --ntasks-per-node=1
+#SBATCH --time=12:00:00
+#SBATCH --account=htl100
+#SBATCH --get-user-env
+#SBATCH --job-name=MO_job
 
-   p)
-      plan_file="${OPTARG}"
-      echo "File with 'old' and 'new' names $OPTARG"
-      ;;
-
-   ?)
-        echo "script usage: $(basename \$0) [-r renamedir] [-p planfile]"
-    esac
-done
 
 ###############################################################################
 # Run in interactive mode #
@@ -28,7 +18,7 @@ done
 # to the new file names old_name must be a filename without the extention. 
 # It must identify a single sample, but will rename paired-read files
 
-# export rename_dir=${readsDir}
+# export rename_dir=${readsDir}/raw
 # export rename_dir=${pReadsDir/}
 
 # export plan_file=${renameFile}
@@ -41,26 +31,26 @@ cd $rename_dir
 # remove carriage return from masterPlanFile.csv > masterPlanFile_v2.csv 
 # must use control-v then control-m to enter ^M
 # sed -e “s/^M//” $plan_file > $plan_crct
-
-
 # in vim
 # :%s/^M//g
+# plan_file=$plan_crct
 
-# oldR1=SRR11460413_1.fastq
-# old_name=SRR11460413
-# new_name=L_1
+# accNum=SRR12512644
+# ID=rad51_00
 
 while IFS="," read -r accNum ID || [[ -n "$accNum" ]]; do
-#    echo "searching for $accNum"
-#    echo "to replace with $ID"
+   echo "searching for $accNum"
+   echo "to replace with $ID"
 # done < "$plan_file"
-    acc=$(echo "$accNum")
+    echo $accNum
     id=$(echo "$ID")
-    oldR1=$(find ./ -name "${acc}*1*")
-    oldR2=$(find ./ -name "${acc}*2*")
+    oldR1=$(find ./ -name "${accNum}_*R1*.fastq.gz")
+    oldR2=$(find ./ -name "${accNum}_*R2*.fastq.gz")
+    echo $oldR1
     if [ -f "$oldR1" ]; then
         base=$(basename ${oldR1})
-        sfx="${base#*.}"
+        # sfx="${base#*.}"
+        sfx=fastq.gz
         newR1=$(echo "${id}_R1.${sfx}")
         echo "$oldR1 found, will rename to ${newR1}"
         mv ${oldR1} ${newR1}
@@ -74,35 +64,9 @@ while IFS="," read -r accNum ID || [[ -n "$accNum" ]]; do
 # done < "$plan_crct"
 done < "$plan_file"
 
-```
-# manual correction
-acc=SRR12442664
-find ./ -name "${acc}*"
+# If there are special characters in filenames, this loop will remove them
 
-old_nm=L24_S32_L002_R2_001.fastq.gz
-new_nm=N_B12_R2.fastq.gz
-mv $old_nm $new_nm
-
-```
-SRR12442617
-SRR12442618
-SRR12442626
-SRR12442637
-SRR12442648
-SRR12442667
-SRR12442671
-SRR12442672
-SRR12442679
-SRR12442680
-SRR12442686
-SRR12442688
-SRR12442690
-SRR12442691
-SRR12442696
-SRR12442697
-SRR12442698
-SRR12442699
-SRR12442702
-SRR12442703
-SRR12442705
-
+# for file in *; do 
+#     mv "$file" $(echo "$file" | sed -e 's/[^A-Za-z0-9._-]//g'); 
+#     # $(echo "$file" | sed -e 's/[^A-Za-z0-9._-]//g')
+# done

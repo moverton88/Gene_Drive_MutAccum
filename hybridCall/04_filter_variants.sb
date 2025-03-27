@@ -1,0 +1,88 @@
+#!/bin/bash
+#SBATCH --partition=hotel
+#SBATCH --qos=hotel
+#SBATCH --nodes=1
+#SBATCH --ntasks-per-node=1
+#SBATCH --time=12:00:00
+#SBATCH --account=htl100
+#SBATCH --get-user-env
+#SBATCH --job-name=combine_call
+
+
+
+###############################################################################
+# script setup ################################################################
+
+
+
+# refSeq=$P1refSeq
+
+# get reference sequence prefix
+refPrefix=${refSeq/.fasta/}
+# Get Parent name from filename
+refFileName=$(basename "${refSeq}")
+pName=${refFileName%%_*}
+
+# variantFile=${finalVarDir}/${pName}/${lineage}_${pName}${tag}.final.vcf
+variantFile=$(echo $variantFile)
+variantPrefix=${variantFile/.final.vcf/}
+variantOut=${variantFile/.final.vcf/.filter.vcf}
+
+$java -jar -Xmx16g $gatk SelectVariants  \
+    -R ${refSeq} \
+    --variant ${variantFile} \
+    --select-type-to-include INDEL \
+    -O ${variantPrefix}.indel.vcf
+
+$java -jar -Xmx16g $gatk SelectVariants  \
+    -R ${refSeq} \
+    --variant ${variantFile} \
+    --select-type-to-include SNP \
+    -O ${variantPrefix}.snps.vcf
+
+# rm ${variant}
+
+# SNP filter
+$java -jar $gatk VariantFiltration \
+    -R $refSeq \
+    -V ${variantPrefix}.snps.vcf \
+    -O ${variantPrefix}.snps.m.vcf \
+    --filter-name "QD2" --filter-expression "QD < 2.0" \
+    --filter-name "FS60" --filter-expression "FS > 60.0" \
+    --filter-name "MQ20" --filter-expression "MQ < 20.0" \
+    --filter-name "QUAL30" --filter-expression "QUAL < 30.0" \
+    --filter-name "SOR10" --filter-expression "SOR > 10.0" \
+    --filter-name "DP6" --filter-expression "DP < 6"
+
+$java -jar $gatk SelectVariants \
+    -V ${variantPrefix}.snps.m.vcf \
+    -O ${variantPrefix}.snps.f.vcf \
+    --exclude-filtered true
+
+# Indel filter
+$java -jar $gatk VariantFiltration \
+    -R $refSeq \
+    -V ${variantPrefix}.indel.vcf \
+    -O ${variantPrefix}.indel.m.vcf \
+    --filter-name "QD2" --filter-expression "QD < 2.0" \
+    --filter-name "FS200" --filter-expression "FS > 200.0" \
+    --filter-name "QUAL30" --filter-expression "QUAL < 30.0" \
+    --filter-name "DP6" --filter-expression "DP < 6"
+
+$java -jar $gatk SelectVariants \
+    -V ${variantPrefix}.indel.m.vcf \
+    -O ${variantPrefix}.indel.f.vcf \
+    --exclude-filtered true 
+
+$java -jar -Xmx16g $gatk MergeVcfs  \
+   -I ${variantPrefix}.snps.f.vcf \
+   -I ${variantPrefix}.indel.f.vcf  \
+   -O ${variantOut}
+
+rm ${variantPrefix}.indel.vcf*
+rm ${variantPrefix}.indel.m.vcf*
+rm ${variantPrefix}.indel.f.vcf*
+
+rm ${variantPrefix}.snps.vcf*
+rm ${variantPrefix}.snps.m.vcf*
+rm ${variantPrefix}.snps.f.vcf*

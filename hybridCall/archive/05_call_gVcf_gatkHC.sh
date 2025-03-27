@@ -12,7 +12,7 @@ while getopts 'a:v:R:t:s:' OPTION; do
 
    v)
       gVCFdir="${OPTARG}"
-      echo "gVCF directory is $OPTARG"
+      echo "VCF directory is $OPTARG"
       ;;
 
    R)
@@ -22,16 +22,16 @@ while getopts 'a:v:R:t:s:' OPTION; do
    
    t)
       VCFtype="${OPTARG}"
-      echo "Reference sequence $OPTARG"
+      echo "VCF type is $OPTARG"
       ;;
 
    s)
-      setVars="${OPTARG}"
+      opSys="${OPTARG}"
       echo "Operating system $OPTARG"
       ;;
 
    ?)
-        echo "script usage: $(basename \$0) [-a alignmentFile] [-v gVCFdirectory] [-R ReferenceSequence] [-t VCFtype]"
+        echo "script usage: $(basename \$0) [-a alignmentFile] [-v gVCFdirectory] [-R referenceSequence] [-t VCFtype] [-s operatingSystem]"
     esac
 done
 
@@ -94,7 +94,6 @@ java  -Xmx16G -jar $gatk HaplotypeCaller \
     -O ${gVCFout} \
     --read-filter MappingQualityReadFilter \
     --minimum-mapping-quality 30 \
-    --active-probability-threshold 0.001 \
     --max-reads-per-alignment-start 100 \
     --max-assembly-region-size 500
 
@@ -102,5 +101,3 @@ else
 
    echo "VCF output type not recognized"
 fi
-
-# 1326645297

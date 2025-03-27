@@ -180,6 +180,105 @@ chainToDF <- function(chainFile, chrom_bound_1 = chrom_bound_BY, chrom_bound_2 =
   return(chainDf)
 }
 
+BoundsFromLengths <- function(lengths) {
+  # lengths <- chrom_lengths_P1$length
+  chr_start <- c(1, cumsum(lengths[1:(length(lengths) - 1)]) + 1)
+  chr_end <- cumsum(lengths)
+
+  chr_bound <- data.frame(CHROM = factor(str_pad(1:length(lengths), width = 2, pad = "0")), 
+                          Start = as.numeric(chr_start), 
+                          End = as.numeric(chr_end))
+  return(chr_bound)
+}
+
+GetChromDF <- function(chrom_lengths) {
+  # chrom_lengths <- chrom_lengths_Ref
+  n_chroms <- nrow(chrom_lengths)
+  roman_chr <- factor(as.character(as.roman(1:n_chroms)), levels = as.character(as.roman(1:n_chroms)))
+  chrom_IDs <- data.frame(CHROM = factor(str_pad(1:n_chroms, 2, pad = "0")), rom_CHROM = roman_chr)
+  chrom_lengths <- merge(chrom_IDs, chrom_lengths, by = "CHROM")
+  
+  chrom_indcs <- cumsum(chrom_lengths$length)
+  
+  chrom_bounds <- BoundsFromLengths(chrom_lengths$length)
+  chrom_bounds <- cbind(chrom_lengths, chrom_bounds[c("Start", "End")])
+  
+  return(chrom_bounds)
+}
+
+
+ChainToDFlist <- function(chain_file, remove_mito = F)  {
+  ###########################################################################
+  # A chain file is composed of a series of sections, one for each contig or 
+  # chromosome. Within each section, there are three columns:
+  # 1) block length, 
+  # 2) difference between end of this block and start of next block in the 
+  # reference sequence, 
+  # 3) difference between end of this bloc and beginning of next query block
+  # This function reads in the chain file and converts it to a data.frame 
+  # capable of converting the position coordinates of the query vcf back to 
+  # that of the coordinates of the Type reference sequence.
+  # It also creates data.frames of the chromosome lengths
+  
+  # chain_file <- P2_chainFile
+  chain_table <- read_lines(chain_file) # read in chain file
+  chain_table <- gsub(pattern = "\"", replacement = "", x = chain_table) # remove spurious "\" characters
+  chain_table <- chain_table[!chain_table == ""] # remove new lines at end of each section
+  chr_idx <- grep("chain", chain_table) # index section headers
+  if(remove_mito) {
+    # remove mitochondrial sequence if present and is present as the final section of the chain file
+    mito_idx <- chr_idx[length(chr_idx)]
+    chain_table <- chain_table[1:(mito_idx - 1)]
+    chr_idx <- chr_idx[1:(length(chr_idx) - 1)]
+  } 
+  end_idx <- length(chain_table)
+  value_idx <- data.frame(from = chr_idx + 1, to = c(chr_idx[2:length(chr_idx)] - 1, end_idx)) # dataframe of section blocks
+  chr_headers <- chain_table[chr_idx] # get section headers
+  chr_info <- str_split(chr_headers, " ", simplify = T) %>% as.data.frame() # turn headers into dataframe
+  col_names <- c("CHROM", "length", "strand", "start", "end") # rename dataframe colnames
+  colnames(chr_info) <- c("null", "score", paste0("Ref_", col_names), paste0("Qry_", col_names), "ID")
+  chrom_names <- str_pad(1:nrow(chr_info), width = 2, side = "left", pad = "0") # get chromosome names
+  
+  Ref_chrom_starts <- cumsum(c(1, chr_info$Ref_length[1:(nrow(chr_info) - 1)]))
+  Qry_chrom_starts <- cumsum(c(1, chr_info$Qry_length[1:(nrow(chr_info) - 1)]))
+  
+  chain_df <- data.frame(NULL)
+  for (ch in 1:nrow(chr_info)) {
+    # ch = 1
+    # subName <- chain_table[chr_idx[ch]]
+    sub_chain <- chain_table[value_idx$from[ch]:value_idx$to[ch]]
+    sub_df <- colsplit(sub_chain, " ", names = c("block", "Ref_diff", "Qry_diff"))
+    sub_df[is.na(sub_df)] <- 0
+    sub_df$cs_block <- cumsum(sub_df$block)
+    sub_df$cs_Ref_diff <- cumsum(sub_df$Qry_diff) - cumsum(sub_df$Ref_diff)
+    sub_df$cs_Qry_diff <- cumsum(sub_df$Ref_diff) - cumsum(sub_df$Qry_diff)
+    sub_df$Ref_POS <- sub_df$cs_block + cumsum(sub_df$Ref_diff) + 1 # cs_block is 0 indexed, so add 1 for position
+    sub_df$Qry_POS <- sub_df$cs_block + cumsum(sub_df$Qry_diff) + 1
+    sub_df[1, c("Ref_POS", "Qry_POS")] <- sub_df$cs_block[1] + 1
+    sub_df$Ref_POSi <- sub_df$Ref_POS + Ref_chrom_starts[ch] - 1 # chrom_starts is 1 indexed, so -1 to add intervening chroms
+    sub_df$Qry_POSi <- sub_df$Qry_POS + Qry_chrom_starts[ch] - 1
+    sub_df$CHROM <- chrom_names[ch]
+    chain_df <- rbind(chain_df, sub_df)
+  }
+  chain_df$CHROM <- factor(chain_df$CHROM)
+  
+  chrom_info_Ref <- chr_info %>% 
+    select(Ref_CHROM, Ref_length) %>% 
+    rename(CHROM_acc = Ref_CHROM, length = Ref_length) %>%
+    mutate(CHROM = str_pad(1:nrow(chr_info), width = 2, pad = "0")) %>% 
+    GetChromDF()
+  
+  chrom_info_Qry <- chr_info %>% 
+    select(Qry_CHROM, Qry_length) %>% 
+    rename(CHROM_acc = Qry_CHROM, length = Qry_length) %>%
+    mutate(CHROM = str_pad(1:nrow(chr_info), width = 2, pad = "0")) %>% 
+    GetChromDF()
+  
+  chain_list <- list(chain = chain_df, Ref_chrom = chrom_info_Ref, Qry_chrom = chrom_info_Qry)
+  
+  return(chain_list)
+}
+
 RMxBY_liftover <- function(vcf_df, chain_df = BYtoRMchainDf, 
                            lift_from = "RM", lift_to = "BY",
                            chrom_from = chrom_bound_RM,
@@ -1115,8 +1214,6 @@ errorFromPhylo <- function(vcf_df, flsHom_support = 4, flsHet_support = 6, outpu
     n_Alt_F_het <- sum(iAlt_F_het, na.rm = T)
     # i_sample_FN <- (evo_GT_wide$nRef >= flsHet_support | evo_GT_wide$nAlt >= flsHet_support) & evo_GT_wide$nHet == 0
     # n_sample_FN <- ifelse(sum(i_sample_FN, na.rm = T) == 0, 1, sum(i_sample_FN, na.rm = T))
-    # 
-    ######################
     if(output_POSi == T) {
       POSi_df <- cbind(Line = fg, 
                        evo_GT_wide[, c("CHROM", "POS", "POSi", "anc_GT",

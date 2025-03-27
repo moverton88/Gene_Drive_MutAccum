@@ -1,0 +1,30 @@
+#!/bin/bash
+#SBATCH --partition=hotel
+#SBATCH --qos=hotel
+#SBATCH --nodes=1
+#SBATCH --ntasks-per-node=1
+#SBATCH --time=12:00:00
+#SBATCH --account=htl100
+#SBATCH --get-user-env
+#SBATCH --job-name=rcncile_callsets
+
+
+
+
+
+###############################################################################
+# Section start ###############################################################
+
+
+module load cpu/0.17.3 gcc/10.2.0-2ml3m2l r
+
+reconcile_script=${codeDir}/05b_reconcile_singleRef.R
+# reconcile_script=${codeDir}/05b_reconcile_callsets_build.R
+
+# P1_VCF=${finalVarDir}/${P1}/${line}_${P1}.filter.vcf
+# P1_chain=${refDir}/final/${P1}/${P1}x${typeRef}.chain
+# repeats_bed=${refDir}/final/${typeRef}/repeats/${typeRef}_repeats.bed
+# SNPs_output=${finalVarDir}/Dual/${line}_${P1}x${P2}_SNPs.RData
+
+Rscript $reconcile_script -o $P1_VCF -c $P1_chain -r $repeats_bed -S $SNPs_output
+

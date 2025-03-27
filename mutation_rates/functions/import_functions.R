@@ -1,4 +1,10 @@
 
+loadRData <- function(fileName){
+  #loads an RData file, and returns it
+  load(fileName)
+  get(ls()[ls() != "fileName"])
+}
+
 RMxBY_vcfParse <- function(vcf_path.) {
   # vcf_path. <- RMxBY_comp_file
   vcf_in <- read.table(vcf_path.)

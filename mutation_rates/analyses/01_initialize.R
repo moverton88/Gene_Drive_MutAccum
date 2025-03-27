@@ -26,7 +26,7 @@ library(gridExtra)
 library(data.table)
 library(bedr, verbose = T)
 library(kSamples)
-library(uniftest)
+# library(uniftest)
 library(effsize)
 library(foreach)
 library(twosamples)
@@ -175,8 +175,9 @@ repeats_bed$Start_POSi <- repeats_bed %>% ConvertPosIndicies(pos_col = "Start_PO
 repeats_bed$End_POSi <- repeats_bed %>% ConvertPosIndicies(pos_col = "End_POS", index_out = "POSi")
 
 
-rRNA_POSi <- data.frame(ID = "rRNA", POS = c(447000, 490000), 
-                        POSi = chrom_bound_BY$Start[12] + c(447000, 490000))
+rRNA_POSi <- data.frame(ID = "rRNA", POS = c(451417, 489550), 
+                        POSi = chrom_bound_BY$Start[12] + c(451417, 489550))
+
 Ty_POSi <- data.frame(ID = "Ty", POS = c(197400, 197600), 
                       POSi = chrom_bound_BY$Start[10] + c(197400, 197600))
 

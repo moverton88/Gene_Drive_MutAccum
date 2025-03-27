@@ -14,33 +14,6 @@
 
 ###############################################################################
 
-# while getopts 'P:R:o:t:' OPTION; do
-#     case $OPTION in
-#     P)
-#         export projDir="$OPTARG"
-#         echo $OPTARG
-#         echo "Project directory is set to $projDir"
-#         ;;
-#     R)
-#         export typeRef="$OPTARG"
-#         echo $OPTARG
-#         echo "The name of the type reference sequence is $typeRef"
-#         ;;
-#     o)
-#         export P1="$OPTARG"
-#         echo $OPTARG
-#         echo "Parent 1 name is $P1"
-#         ;;
-#     t)
-#         export P2="$OPTARG"
-#         echo $OPTARG
-#         echo "Parent 2 name is $P2"
-#         ;;
-#     \?)
-#         echo "script usage: $(basename $0) [-p projectdir] [-R typereference] [-o parent1name] [-t parent2name]"
-#     esac
-# done
-
 projDir=$1
 echo "Project directory is set to $projDir"
 typeRef=$2
@@ -59,7 +32,21 @@ export codeDir=`sed -n 5p ${projDir}/sysparams.txt`
 
 export sysVars=${projDir}/sysvars.sh
 source $sysVars
-export PATH=${javaDir}:$PATH
+
+# Trimmomatic
+export bwa=${appDir}/bwa-mem2-2.2.1_x64-linux/bwa-mem2
+export samtools=${appDir}/samtools-1.19.2/samtools
+export bcftools=${appDir}/bcftools-1.19/bcftools
+export bedtools=${appDir}/bedtools
+export bgzip=${appDir}/htslib-1.19.1/bgzip
+# export java=${appDir}/jdk17/bin/java
+export java=${appDir}/jdk-8u402-b06-linux-x64/bin/java
+export gatk=${appDir}/gatk-4.3.0.0/gatk-package-4.3.0.0-local.jar
+export nucmer=${appDir}/mummer-4.0.0rc1/nucmer
+export delta=${appDir}/mummer-4.0.0rc1/delta-filter
+export coords=${appDir}/mummer-4.0.0rc1/show-coords
+export delta2vcf=${appDir}/mummer-4.0.0rc1/delta2vcf
+export fastqc=${appDir}/FastQC/fastqc
 
 ## set all variables used in pipeline. Need to ensure alternatives to TSCC modules
 export refDir=${projDir}/references
@@ -98,20 +85,8 @@ export readMetricsDir=${projDir}/metrics/reads
 export alignMetricsDir=${projDir}/metrics/alignments
 export metaDir=${projDir}/metadata
 
-export accFile=`find $metaDir -type f -name *ccessions.*`
-export pAccFile=`find $metaDir -type f -name *arent*ccessions.*`
+export accFile=`find $metaDir -type f -name *clone*ccession*`
+export pAccFile=`find $metaDir -type f -name *arent*ccession*`
 export renameFile=`find $metaDir -type f -name *clone*rename.*`
 export pRenameFile=`find $metaDir -type f -name *parent*rename.*`
 # export trimFile=`find $metaDir -type f -name *[Tt]rim*`
-
-
-# if [[ ${opSys} == "tscc" ]]; then
-#     echo "Using TSCC remote cluster"
-# else
-#     echo "Using native computer system"
-#     bwa=${bwaApp}
-#     samtools=${samtoolsApp}
-#     bcftools=${bcftoolsApp}
-#     bedtools=${bedtoolsApp}
-# fi
-

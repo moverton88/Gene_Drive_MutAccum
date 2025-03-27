@@ -73,7 +73,7 @@ if(P1_only) {
   # Load Parent 2 callset
   all_var_P2 <- HC_multiVcfParse_allVar(P2_file, all_Alts = F, verbose = T) %>% 
     filter(Sum_DP >= 6) %>% select(all_of(merge_cols))
-  all_var_P2_raw <- all_var_P2
+  # all_var_P2_raw <- all_var_P2
   # all_var_P2_file <- "~/SK_Lab/PhD_Projects/LOH_methods/Overton_etal_2022/data/int/Overton_allVar_P2_2023_08.RData"
   # save(all_var_P2, file = all_var_P2_file)
   # all_var_P2 <- all_var_P2 %>% filter(grepl("F_A", ID))
@@ -123,13 +123,13 @@ if(P1_only) {
                       suffixes = c("_P1call", "_P2call"), 
                       sort = F) %>% arrange(ID, POSi)
   
-  SNPs_merge %>% summarise(n_tot = length(POSi),
-                           n_P1 = sum(!is.na(REF_P1call)),
-                           n_na_P1 = sum(is.na(REF_P1call)),
-                           n_P2 = sum(!is.na(REF_P2call)),
-                           n_na_P2 = sum(is.na(REF_P2call)),
-                           n_match = sum(!is.na(REF_P1call) & !is.na(REF_P2call)),
-                           p_match = 2 * n_match/(n_P1 + n_P2))
+  # SNPs_merge %>% summarise(n_tot = length(POSi),
+  #                          n_P1 = sum(!is.na(REF_P1call)),
+  #                          n_na_P1 = sum(is.na(REF_P1call)),
+  #                          n_P2 = sum(!is.na(REF_P2call)),
+  #                          n_na_P2 = sum(is.na(REF_P2call)),
+  #                          n_match = sum(!is.na(REF_P1call) & !is.na(REF_P2call)),
+  #                          p_match = 2 * n_match/(n_P1 + n_P2))
 
   rm(all_var_P1)
   rm(all_var_P2)
@@ -153,6 +153,7 @@ if(P1_only) {
   SNPs_merge <- SNPs_merge %>% filter(!repeats) %>% select(-repeats)
   
   # perform final genotyping
+  # do not hardcode parameters!
   SNPs_merge_finalGT <- SNPs_merge %>% 
     GenotypeFromGQ(., P1_ID = "P1call", P2_ID = "P2call",
                    baseThrsh = 50, naThrsh = 100, diffThrsh = 30) %>%
@@ -171,6 +172,7 @@ SNPs_merge_finalGT <- SNPs_merge_finalGT %>%
 # Remove all calls with insufficient support
 # Het - at least three reads for each allele
 # Hom - at least three reads supporting allele
+# Do not hardcode parameters!
 SNPs_merge_finalGT <- SNPs_merge_finalGT %>%
   filter(!(GT == "0/1" & (Ref_DP_final <= 3 | Alt_DP_final <= 3)),
          !(GT == "1/1" & Alt_DP_final <= 3),

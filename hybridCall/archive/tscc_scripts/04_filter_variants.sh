@@ -1,4 +1,7 @@
 #!/bin/bash
+#PBS -A mioverto
+#PBS -l nodes=1 
+#PBS -l walltime=5:00:00
 
 while getopts 'v:l:f:o:R:' OPTION; do
    case "$OPTION" in
@@ -79,7 +82,7 @@ java -jar $gatk SelectVariants \
 java -jar -Xmx16g $gatk MergeVcfs  \
    -I ${variantPrefix}.snps.f.vcf \
    -I ${variantPrefix}.indel.f.vcf  \
-   -O ${variantPrefix}.sif.vcf
+   -O ${variantOut}
 
 rm ${variantPrefix}.indel.vcf*
 rm ${variantPrefix}.indel.m.vcf*
@@ -88,26 +91,3 @@ rm ${variantPrefix}.indel.f.vcf*
 rm ${variantPrefix}.snps.vcf*
 rm ${variantPrefix}.snps.m.vcf*
 rm ${variantPrefix}.snps.f.vcf*
-
-
-
-# java -jar $gatk FilterVcf \
-#    -I ${variantPrefix}.sif.vcf \
-#    --MIN_GQ 30 \
-#    -O ${variantOut}
-
-# rm ${variantPrefix}.sif.vcf*
-
-```
-Filter
-
-                    SNP     INDEL
-
-FS                  > 60    > 200
-ReadPosRankSum      < -8.0  < -20.0
-QUAL                < 30.0  < 30.0
-SOR                 > 3.0   NONE
-MQ                  < 40.0  NONE
-MQRankSum           < -12.5 NONE
-
-```

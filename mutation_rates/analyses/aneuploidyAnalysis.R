@@ -167,7 +167,7 @@ anu_DP %>% filter(Line == "N_A") %>%
 # depths respectively, and a high proportion of heterozygosity. 
 # If there are gene conversions, we expect an inverse
 # relationship between relative depths with slope = -1, up to the points 
-# (0,2) and (2,0), which indicate loss and amplification. If there is
+# (0,2) and (2,0), which indicate complete loss or single amplification. If there is
 # relative depth ~2 and ~0.5, it probably indicates extensive LOH and
 # possible CNV. 
 
@@ -520,80 +520,71 @@ chrom_plot_out
 
 # Calculates sliding window depths of allele reads and total reads for each evolved clone at sites
 # initially heterozygous in the founder
-all_slide_DP <- data.frame(NULL)
+
 wndw <- 50000
-for (id in levels(all_manySites$ID)) {
-  # id = "N_A05"
-  id_df <- subset(all_manySites, ID == id) %>% 
-    # filter(GT == "0/1") %>% 
-    filter(POSi <= 7687467 | POSi >= 7737467)
-  tx <- id_df[1, "Tx"]
-  
-  id_lngths <- id_df %>% dplyr::group_by(CHROM) %>% dplyr::summarise(chr_max = max(POS), chr_min = min(POS))
-  id_lngths$chr_ln <- id_lngths$chr_max - id_lngths$chr_min
-  if (min(id_lngths$chr_ln) > wndw) {
-    BY_slide_df <- SliderCalc(df = id_df, data_col = "BY_DP", index_col = "POS", factor_col = "CHROM", 
-                              window_size = wndw, slide_interval = wndw)
-    RM_slide_df <- SliderCalc(df = id_df, data_col = "RM_DP", index_col = "POS", factor_col = "CHROM", 
-                              window_size = wndw, slide_interval = wndw)
-    sum_slide_df <- SliderCalc(df = id_df, data_col="Sum_DP", index_col="POS", factor_col="CHROM", 
-                               window_size=wndw, slide_interval = wndw)
-    slide_df <- data.frame(ID = id, CHROM = BY_slide_df$CHROM, POS = BY_slide_df$start, 
-                           BY_DP = BY_slide_df$value, RM_DP = RM_slide_df$value, 
-                           Sum_DP = sum_slide_df$value, mean_DP = mean(sum_slide_df$value, na.rm = T))
-    slide_df$CHROM <- factor(slide_df$CHROM)
-    slide_df$endPOS <- slide_df$POS + wndw - 1
-    slide_df$POSi <- 0
-    for(ch in seq_along(levels(slide_df$CHROM))) {
-      # ch = 1
-      chrm_i <- slide_df$CHROM == levels(slide_df$CHROM)[ch]
-      slide_df$POSi[chrm_i] <- slide_df$POS[chrm_i] + chrom_bound[ch, 1] - 1
-      slide_df$endPOSi[chrm_i] <- slide_df$endPOS[chrm_i] + chrom_bound[ch, 1] - 1
-    }
-    slide_df$chrom_n <- as.numeric(slide_df$CHROM)
-    slide_df[, c("Tx",  "Line", "Rep")] <- c(id_df[1, c("Tx", "Line", "Rep")])
-    all_slide_DP <- rbind(all_slide_DP, slide_df)
-    print(id)
-  }
-  all_slide_DP[, c("Tx",  "Line", "Rep")] <- lapply(all_slide_DP[, c("Tx",  "Line", "Rep")], factor)
-}
+
+id_df <- SNPs_merge_finalGT %>% filter(ID %in% paste0("L00", 1:9))
+  filter(ID %in% c("N_C00"))
+
+REF_slide_df <- SliderCalc(df = id_df, data_col = "Ref_DP_final", index_col = "POS", factor_col = "ID",
+                           chrom_win = T, window_size = wndw, slide_interval = wndw, summary_stat = mean)
+ALT_slide_df <- SliderCalc(df = id_df, data_col = "Alt_DP_final", index_col = "POS", factor_col = "ID",
+                           chrom_win = T, window_size = wndw, slide_interval = wndw, summary_stat = mean)
+sum_slide_df <- SliderCalc(df = id_df, data_col="Sum_DP_final", index_col="POS", factor_col = "ID",
+                           chrom_win = T, window_size=wndw, slide_interval = wndw, summary_stat = mean)
+all_slide_DP <- data.frame(REF_slide_df, Alt_DP_final = ALT_slide_df$Alt_DP_final, 
+                       Sum_DP_final = sum_slide_df$Sum_DP_final, mean_DP = mean(sum_slide_df$Sum_DP_final, na.rm = T))
+
+# all_slide_DP$endPOS <- all_slide_DP$POS + wndw - 1
+all_slide_DP$start_POSi <- ConvertPosIndicies(all_slide_DP, pos_col = "start")
+all_slide_DP$end_POSi <- ConvertPosIndicies(all_slide_DP, pos_col = "end")
+
+# slide_df[, c("Tx",  "Line", "Rep")] <- c(id_df[1, c("Tx", "Line", "Rep")])
+# all_slide_DP[, c("Tx",  "Line", "Rep")] <- lapply(all_slide_DP[, c("Tx",  "Line", "Rep")], factor)
 
 
 
-slide_plot_in <- all_slide_DP %>% 
-  filter(Line == "H_A")
+
+slide_plot_in <- all_slide_DP
 # filter(Tx == "H")
 
 id_meanDP <- slide_plot_in %>% 
   dplyr::ungroup() %>%
-  dplyr::group_by(Rep) %>% 
-  dplyr::summarize(minPOSi = min(POSi),
-                   maxPOSi = max(POSi), 
-                   BY_DP = mean(BY_DP, na.rm = T), 
-                   RM_DP = mean(RM_DP, na.rm = T), 
-                   Sum_DP = mean(Sum_DP, na.rm = T))
+  dplyr::group_by(ID) %>% 
+  dplyr::summarize(minPOSi = min(start_POSi),
+                   maxPOSi = max(end_POSi), 
+                   Ref_DP_final = mean(Ref_DP_final, na.rm = T), 
+                   Alt_DP_final = mean(Alt_DP_final, na.rm = T), 
+                   Sum_DP_final = mean(Sum_DP_final, na.rm = T))
 
-dp_lim1 <- 5*ceiling(max(c(slide_plot_in$BY_DP, slide_plot_in$RM_DP), na.rm = T)/5)
+dp_lim1 <- 5*ceiling(max(c(slide_plot_in$Ref_DP_final, slide_plot_in$Alt_DP_final), na.rm = T)/5)
 
-slide_plot_out <- slide_plot_in %>% 
+slide_plot_out <- slide_plot_in %>% filter(ID == "L008") %>% 
+  # filter(Sum_DP_final < 500) %>%
+  filter(CHROM == "15") %>%
   ggplot() + 
-  annotate(geom="rect", xmin=chrom_bound$Start[c(TRUE, FALSE)],
-           xmax=chrom_bound$End[c(TRUE, FALSE)], ymin=-Inf, ymax=Inf, alpha=0.07) +
-  geom_line(aes(x = POSi, y = BY_DP, group = CHROM), color = "orange1", size = 0.5) +
-  geom_line(aes(x = POSi, y = RM_DP, group = CHROM), color = "blue2", size = 0.5) +
-  geom_line(aes(x = POSi, y = Sum_DP, group = CHROM), color = "grey50", size = 0.5) +
-  # geom_segment(data = id_meanDP, aes(x = minPOSi, xend = maxPOSi, y = Sum_DP, yend = Sum_DP), color = "grey50", size = 0.5) +
-  scale_x_continuous(labels=as.character(chrom_bound$CHROM),
-                     breaks=(chrom_bound$Start+chrom_bound$End)/2) +
-  xlab("Chromosome") + ylab("Mean Read Depth") +
-  # ylim(c(0, dp_lim1)) +
-  theme(axis.text.x = element_text(size=10), 
+  # annotate(geom="rect", xmin=chrom_bounds_Ref$start[c(TRUE, FALSE)],
+  #          xmax=chrom_bounds_Ref$end[c(TRUE, FALSE)], ymin=-Inf, ymax=Inf, alpha=0.07) +
+  geom_line(aes(x = start_POSi, y = Ref_DP_final), color = "orange1", linewidth = 0.5) +
+  geom_line(aes(x = start_POSi, y = Alt_DP_final), color = "blue2", linewidth = 0.5) +
+  # geom_line(aes(x = start_POSi, y = Alt_DP_final/Sum_DP_final, color = Sum_DP_final), linewidth = 0.5) +
+  geom_hline(aes(yintercept = 0.5)) +
+  geom_line(aes(x = start_POSi, y = Sum_DP_final), color = "grey50", linewidth = 0.5) +
+  # geom_segment(data = id_meanDP, aes(x = minPOSi, xend = maxPOSi, y = Sum_DP_final, yend = Sum_DP_final), color = "grey50", size = 0.5) +
+  scale_x_continuous(labels=as.character(chrom_bounds_Ref$CHROM),
+                     breaks=(chrom_bounds_Ref$start+chrom_bounds_Ref$end)/2) +
+  xlab("Chromosome") + 
+  # ylab("Mean Read Depth") +
+  ylab("Fraction Alt reads") +
+  # ylim(c(0, 1)) +
+  # scale_color_gradient(low = "skyblue", high = "red4") +
+  theme(axis.text.x = element_text(size = 10), 
         # panel.grid.major.y = element_line(color = "grey40", size = 0.1),
         #panel.grid.major.x = element_blank(),
         panel.grid.minor.x = element_blank(),
         panel.background = element_rect(fill = "white", color = "gray70"), 
         strip.background = element_rect(fill = "white", color = "gray70")) +
-  facet_grid(Rep~., scales = "free_y")
+  facet_wrap(~CHROM, scales = "free_x", ncol = 4)
 
 slide_plot_out
 

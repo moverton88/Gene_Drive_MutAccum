@@ -14,7 +14,7 @@
 #*****************************************************************************#
 
 
-while getopts 'r:m:i:o:C:L:T:H:A:R:' OPTION; do
+while getopts 'r:m:o:C:L:T:H:A:g:' OPTION; do
     case "$OPTION" in
     r)
         reads1="$OPTARG"
@@ -36,6 +36,16 @@ while getopts 'r:m:i:o:C:L:T:H:A:R:' OPTION; do
         echo "The output directory is $OPTARG"
     ;;   
 
+    C)
+        crop="$OPTARG"
+         if [[ -z ${crop} ]]; then
+            printf "Defaulting to 1000bp max read length"
+            crop=1000
+        else
+            echo "Max read length ${crop}"
+        fi
+    ;; 
+
     L)
         lead="$OPTARG"
         echo "Minimum quality for inclusion at read start: $OPTARG"
@@ -51,24 +61,10 @@ while getopts 'r:m:i:o:C:L:T:H:A:R:' OPTION; do
         echo "Crop $OPTARG bases from the start of the read"
     ;;    
 
-    C)
-        crop="$OPTARG"
-         if [[ -z ${crop} ]]; then
-            printf "Defaulting to 1000bp max read length"
-            crop=1000
-        else
-            echo "Max read length ${crop}"
-        fi
-    ;; 
 
     A)
         adapters="$OPTARG"
         echo "Adapter file $OPTARG"
-    ;;
-
-    g)
-        trimLog="$OPTARG"
-        echo "Trim log directory $OPTARG"
     ;;
 
     ?)
@@ -85,10 +81,12 @@ else
     trimOpt=SE
 fi
 
+#  adapters=/home/mioverto/bin/Trimmomatic-0.36/adapters/NexteraPE-PE.fa
+
 # Record inputs to log
-# echo fastq inputs:; echo $reads1; echo $reads2
-# echo Illumina adapter: $adapters
-# echo Trimmomatic location: $trimApp
+echo fastq inputs:; echo $reads1; echo $reads2
+echo Illumina adapter: $adapters
+echo Trimmomatic location: $trimApp
 
 if [[ ${reads1} =~ .*gz.* ]] 
 then
@@ -120,7 +118,7 @@ trimR2U=${tmpReadFile/R1.fastq/R2U.trim.fastq}
 # echo $trimR1
 
 # Send Trimmomatic's logs to same folder; changing file ext later
-# trimLog=${trimLogDir}/$(basename ${R1file/_R1.fastq/})_trimlog_$(date +'%Y_%m_%d').txt
+trimLog=${readsDir}/trim_log/$(basename ${R1file/_R1.fastq/})_trimlog.txt
 
 if [ ! -f ${adapters} ]; then
     java -jar ${trimApp} ${trimOpt} \

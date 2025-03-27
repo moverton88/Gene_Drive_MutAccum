@@ -1,7 +1,12 @@
 #!/bin/bash
-#PBS -A mioverto
-#PBS -l nodes=1 
-#PBS -l walltime=24:00:00
+#SBATCH --partition=hotel
+#SBATCH --qos=hotel
+#SBATCH --nodes=1
+#SBATCH --ntasks-per-node=1
+#SBATCH --time=12:00:00
+#SBATCH --account=htl100
+#SBATCH --get-user-env
+#SBATCH --job-name=const_refSeq
 
 ###############################################################################
 # 03_construct_refSeq_contigs.sh
@@ -10,52 +15,20 @@
 # and a liftover file.
 #*****************************************************************************#
 
-while getopts 'R:s:' OPTION; do
-   case "$OPTION" in
-   R)
-      pReads="$OPTARG"
-      echo "Reads file 1 $OPTARG"
-      ;;
-
-   s)
-      opSys="${OPTARG}"
-      echo "Operating system $OPTARG"
-      ;;
-
-   ?)
-        echo "script usage: $(basename \$0) [-R1 readsfile1] [-s operatingSystem]"
-    esac
-done
-
-if [[ ${opSys} == "tscc" ]]; then
-   echo "loading packages from modules"
-      module load bwa
-      module load samtools    
-      module load bcftools
-      module load bedtools
-   else
-   echo "loading packages from files"
-      bwa=${bwaApp}
-      samtools=${samtoolsApp}
-      bcftools=${bcftoolsApp}
-      bedtools=${bedtoolsApp}
-fi
-
 ###############################################################################
 # Requires the Mummer program from 
 # https://mummer4.github.io/index.html
 #*****************************************************************************#
-nucmer=${appDir}/mummer-4.0.0rc1/nucmer
-delta=${appDir}/mummer-4.0.0rc1/delta-filter
-# coords=${appDir}/mummer-4.0.0rc1/show-coords
-delta2vcf=${appDir}/mummer-4.0.0rc1/delta2vcf
+if [[ ! -x ${nucmer} ]]; then
+   echo "mummer program not present in path ${nucmer}"
+fi
 
 ###############################################################################
 # Manually entered variables
 #*****************************************************************************#
 # pReads=${pReadsDir}/${P1}_contigs.fasta
-# pReads=`find ${pReadsDir} -type f -name "${P1}*contigs.fasta"`
-# pAlignment=${pAlignDir}/${pName}.bam
+# pReads1=`find ${pReadsDir} -type f -name "${P1}*contigs.fasta"`
+# pAlignment=${pAlignDir}/${pName}/${pName}.bam
 ###############################################################################
 
 ###############################################################################
@@ -63,7 +36,7 @@ delta2vcf=${appDir}/mummer-4.0.0rc1/delta2vcf
 #*****************************************************************************#
 
 # Get Parent name from filename
-pFileName=$(basename "${pReads}")
+pFileName=$(basename "${pReads1}")
 pName=${pFileName%%_*}
 
 # Get name of Type strain from filename
@@ -72,8 +45,8 @@ typefn=$(basename "${typeRefSeq}" .fasta)
 typeName=${typefn%%_*}
 
 # Alignment and variant path names
-pAlignment=${pAlignDir}/${pName}.bam
-pVariant=${pVarDir}/${pName}.vcf
+pAlignment=${pAlignDir}/${pName}/${pName}x${typeName}.bam
+pVariant=${pVarDir}/${pName}/${pName}x${typeName}.vcf
 
 # Path and file names for final parental reference sequence and liftover files
 pReference=${refSeqDir}/${pName}/${pName}_refseq.fasta
@@ -89,7 +62,7 @@ pChain=${refSeqDir}/${pName}/${pName}x${typeName}.chain
 #*****************************************************************************#
 
 if [[ -f "${typeRefPrefix}.amb" ]]; then
-   echo "bwa reference index files already exists"
+   echo "bwa reference index files already exist"
 else
    echo "bwa reference index files does not exist. Generating now..."   
    bwa index -p $typeRefPrefix $typeRefSeq 
@@ -118,41 +91,41 @@ cd ${pAlignDir}/${pName} # nucmer only outputs to stdout so must change to outpu
 $nucmer -p ${pName}_mum_ref ${typeRefSeq} ${pReads} # -p prefix of output
 $delta ${pName}_mum_ref.delta -1 | $delta2vcf > ${pName}_mum_ref.vcf
 
-# nucmer outputs the GT field as an integer rather than 0/0 ect format, so have to change
-sed 's/0:1:/1\/1:1:/g' ${pName}_mum.vcf | \
+# nucmer outputs the GT field as an integer rather than 0/0, 0/1, ect. format, so have to change
+sed 's/0:1:/1\/1:1:/g' ${pName}_mum_ref.vcf | \
 sed 's/GT,Number=1,Type=Integer/GT,Number=1,Type=String/g' > ${pVariant}
 
+cp ${pVariant} ${refSeqDir}/${pName}/
 ###############################################################################
 
 ###############################################################################
 # To create a consensus sequence, bcftools requires the vcf file to be 
-# normalized. However, if there are overlapping indel and SNP variants, 
-# the consensus call is not clear. 
+# normalized, which resloves overlapping indel and SNP variants. 
 #*****************************************************************************#
 
-firstNorm=${pName}/.nrm.bcf.gz
-SNPvariants=${pName}.snps.bcf.gz
-SNPconsSeq=${pName}_SNPs.fasta
-indelVariants=${pName}.indels.bcf.gz
-indelNormVariants=${pName}.nrmIndels.bcf.gz
+firstNorm=${pVarDir}/${pName}/${pName}.nrm.bcf.gz
+SNPvariants=${pVarDir}/${pName}/${pName}.snps.bcf.gz
+SNPconsSeq=${pVarDir}/${pName}/${pName}_SNPs.fasta
+indelVariants=${pVarDir}/${pName}/${pName}.indels.bcf.gz
+indelNormVariants=${pVarDir}/${pName}/${pName}.nrmIndels.bcf.gz
 
 # First pass normalization of all variants
-bcftools norm -m +any -f $typeRefSeq -Ob ${pVariant} > ${firstNorm}
-bcftools index ${pName}.nrm.bcf.gz
+$bcftools norm -m +any -f $typeRefSeq -Ob ${pVariant} > ${firstNorm}
+$bcftools index ${firstNorm}
 
 # Split off SNP variants and create SNP consensus sequence
-bcftools view -v snps -Ob ${firstNorm} -o ${SNPvariants}
-bcftools index ${SNPvariants}
+$bcftools view -v snps -Ob ${firstNorm} -o ${SNPvariants}
+$bcftools index ${SNPvariants}
 
 # Create SNP consensus sequence from 1/1 genotype SNPs
-bcftools consensus -H A -f ${typeRefSeq} ${SNPvariants} > ${SNPconsSeq}
+$bcftools consensus -H A -f ${typeRefSeq} ${SNPvariants} > ${SNPconsSeq}
 
 # Split off indel variants and normalize against SNP consensus sequence
-bcftools view -v indels -Ob ${firstNorm} -o ${indelVariants}
-bcftools norm -m +any -c s -f ${SNPconsSeq} -Ob ${indelVariants} > ${indelNormVariants}
-bcftools index ${indelNormVariants}
+$bcftools view -v indels -Ob ${firstNorm} -o ${indelVariants}
+$bcftools norm -m +any -c s -f ${SNPconsSeq} -Ob ${indelVariants} > ${indelNormVariants}
+$bcftools index ${indelNormVariants}
 
 # Create final consensus sequence by appending SNP consensus with 1/1 indel variants
-bcftools consensus -H A -f ${SNPconsSeq} -c ${pChain} ${indelNormVariants} > ${pReference}
+$bcftools consensus -H A -f ${SNPconsSeq} -c ${pChain} ${indelNormVariants} > ${pReference}
 
 ###############################################################################

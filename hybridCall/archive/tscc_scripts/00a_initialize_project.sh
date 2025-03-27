@@ -58,7 +58,7 @@ echo -e "${opSys}\n${proj}\n${baseDir}\n${appDir}\n${codeDir}" > $sysParams
 mkdir reads alignments metrics variants references metadata logs
 
 cd ${projDir}/reads
-mkdir sra_cache sra_home_cache
+mkdir sra_cache
 
 cd ${projDir}/alignments
 mkdir $P1 $P2
@@ -108,7 +108,7 @@ echo "export fasterq=${sraDir}/bin/fasterq-dump" >> ${sysVars}
 
 cd $appDir/..
 homeDir=`echo $(pwd)`
-echo "export homeCache=${projDir}/reads/sra_home_cache" >> ${sysVars}
+echo "export homeCache=`find ${homeDir} -type d -name "prefetc*"`/sra" >> ${sysVars}
 echo "export fasterqCache=${projDir}/reads/sra_cache" >> ${sysVars}
 echo "export pFasterqCache=${projDir}/references/construction/reads/sra_cache" >> ${sysVars}
 
@@ -120,11 +120,11 @@ echo "export FastQC=${FastqcDir}/fastqc" >> ${sysVars}
 
 # echo "bedtools=${appDir}/bedtools" >> ${codeDir}/hybridCall/02_initialize_variables.sh
 
-jvmDir=`find ${appDir} -maxdepth 2 -type d -name "jdk*"`
-echo "export javaDir=${jvmDir}/bin" >> ${sysVars}
+jvmDir=${appDir}/jvm
+echo "export javaDir=`find $jvmDir -type d -name "java*"`/bin" >> ${sysVars}
 # PATH=${javaDir}:$PATH
 
-gatkDir=`find ${appDir} -maxdepth 1 -type d -name "gatk*"`
+gatkDir=`find $appDir -maxdepth 1 -type d -name "gatk*"`
 echo "export gatk=`find $gatkDir -type f -name "gatk*local.jar"`" >> ${sysVars}
 
 # echo "export adapters=${metaDir}/NexteraPE-PE.fa" >> ${sysVars}

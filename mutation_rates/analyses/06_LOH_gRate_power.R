@@ -11,6 +11,11 @@
 # the range of significance fractions crosses the desired power 
 # threshold of 0.9.
 
+# Load LOH data -----
+dataIntDir <- "~/SK_Lab/PhD_Projects/geneDrive/data/int"
+LOHbounds_file <- paste0()
+
+
 ###############################################################################
 # Observed LOH counts, constant variance, varying effect size ------
 LOHcounts_in <- all_LOHcounts_merge_NS

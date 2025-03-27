@@ -16,17 +16,17 @@ while getopts 'r:a:R:s:' OPTION; do
       ;;
 
    R)
-      refSeq="${OPTARG}"
+      refSeq="$OPTARG"
       echo "Reference sequence $OPTARG"
       ;;
 
    s)
-      setVars="${OPTARG}"
+      opSys="$OPTARG"
       echo "Operating system $OPTARG"
       ;;
 
    ?)
-        echo "script usage: $(basename \$0) [-R1 readsfile1] [-s setvarablesfile]"
+        echo "script usage: $(basename \$0) [-r readsfile1] [-a alignmentDirOut] [-R referenceSequence]  [-s operatingSystem]"
     esac
 done
 
@@ -84,12 +84,6 @@ if [ ! -d ${alignMetricsDir}/${refName}/ ]; then
 fi
 
 
-# Reference must be indexed by bowtie2 before read alignment
-# if [ ! -f ${refPrefix}.1.bt2 ]; then
-#     echo "Reference sequence needs to be indexed (bowtie2-build)"
-#     bowtie2-build ${refSeq} ${refPrefix}
-# fi
-
 if [[ ! -f "${refPrefix}.amb" || ! -f "${refPrefix}.bwt" || ! -f "${refPrefix}.sa" ]]; then
    echo "bwa reference index files does not exist. Generating now..."   
    bwa index -p $refPrefix $refSeq
@@ -102,13 +96,9 @@ fi
 if [[ ! -f "${refSeq}.img" ]]; then
    echo "bwa index image file does not exist. Generating now..."   
 
-   # cp ${refSeq} ${refPrefix}.fasta
-
    java -jar $gatk BwaMemIndexImageCreator \
      -I ${refPrefix}.fasta \
      -O ${refSeq}.img
-   
-   # rm ${refPrefix}.fasta
 
 else
    echo "bwa index image file already exists"
@@ -128,14 +118,16 @@ else
    echo "GATK reference index file already exists"
 fi
 
-# Align paired and unpaired reads reads with bowtie2. 
-# ${sampleName} used for naming alignments. Output is sorted bam alignment
-# -I, -X flag give the minimum, maximum valid gap between paired reads
-# samtools view -h [include header] -b [bam output] -u [uncompressed .bam] | sort -m [memory allocated] -o [output file] -T [temp files]
-
-# bowtie2 --rg-id ${sampleName} --rg SM:${sampleName} --sensitive-local -I 100 -X 1000 \
-# -x ${refPrefix} -1 ${R1PFILE} -2 ${R2PFILE} -U "${R1UFILE},${R2UFILE}" \
-# | samtools view -h -b -u | samtools sort -m 10000000 -o ${bamRaw} -O bam -T ${bamDir}/temp_dir/${sampleName}
+### Align paired and unpaired reads reads with bowtie2. 
+# ${sampleName} used for naming alignments. Output is a sorted bam alignment.
+# bwa mem -v [verbose level] 
+   # align reads with default bwa settings
+# samtools view -b
+   # convert alignment from .sam to .bam
+# samtools sort -o [output file] -T [temp files] -o [outputFile]
+   # sort the .bam file according to position
+# samtools index [inputFile]
+   # Create bam index file
 
 bwa mem -v 3 $refPrefix $reads1 $reads2 | samtools view -b - | \
 samtools sort -O bam -T ${tmpDir} -o ${alignRaw} - 
@@ -144,6 +136,12 @@ samtools index ${alignRaw}
 rm -dr ${alignDirOut}/${sampleName}_tmp
 
 ### Standardize read group labels
+# GATK requres a different output file, cannot overwrite existing bam file
+# --RGPL [platform]
+# --RGPU [read group platform unit]
+# --RGLB [read group library]
+# --RGSM [read group sample name]
+
 
 java -jar $gatk AddOrReplaceReadGroups \
    -I ${alignRaw} \
@@ -156,17 +154,19 @@ java -jar $gatk AddOrReplaceReadGroups \
 # index bam alignment
 samtools index ${alignRaw/.bam/.rg.bam}
 
+# remove initial bam files
 rm ${alignRaw}
 rm ${alignRaw/.bam/.bam.bai}
 
-# other bowtie2 options: -N 1 -L 20 --mp 3,2 --rdg 3,2 --rfg 3,2 --local
-# Remove duplicate reads
+
+# Remove duplicate reads and create metrics file
 java -jar $gatk MarkDuplicates \
    -I ${alignRaw/.bam/.rg.bam} \
    -O ${alignDeDup} \
    -M ${deDupMetrics} \
    --TMP_DIR ${alignDir}/${refName}/${sampleName}_tmp
 
+# remove raw alignment files
 rm ${alignRaw/.bam/.rg.bam}
 rm ${alignRaw/.bam/.rg.bam.bai}
 
@@ -177,9 +177,9 @@ samtools index ${alignDeDup}
 # rm ${alignRaw}
 # rm ${alignRaw/.bam/.bam.bai}
 
+# Generate depth metrics file
 java -jar -Xmx16g $gatk CollectWgsMetrics \
        -I ${alignDeDup} \
        -O ${depthFile} \
        --READ_LENGTH 100 \
-       -R ${refSeq} 
-
+       -R ${refSeq}

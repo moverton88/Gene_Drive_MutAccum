@@ -1,0 +1,23 @@
+#!/bin/bash
+#SBATCH --partition=hotel
+#SBATCH --qos=hotel
+#SBATCH --nodes=1
+#SBATCH --ntasks-per-node=1
+#SBATCH --time=12:00:00
+#SBATCH --account=htl100
+#SBATCH --get-user-env
+#SBATCH --job-name=rcncile_callsets
+
+
+###############################################################################
+# Section start ###############################################################
+
+module load cpu/0.17.3 gcc/10.2.0-2ml3m2l r
+
+import_script=${codeDir}/05_00_VCFtoRData.R
+# reconcile_script=${codeDir}/05b_reconcile_callsets_build.R
+
+# VCF_in=${finalVarDir}/${P1}/${line}_${P1}.filter.vcf
+# RData_out=${VCF_in/filter.vcf/RData}
+
+Rscript $import_script -i $VCF_in -o $RData_out

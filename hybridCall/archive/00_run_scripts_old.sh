@@ -22,14 +22,14 @@ export typeRef=S288C
 export P1=W303
 export P2=YJM789
 
-## test
-export proj=test
+## Dutta et al 2021
+export proj=Dutta_etal
 export projDir=${baseDir}/${proj}
 export typeRef=S288C
 
-# export P1=ABS
-# export P2=BKL
-# export line=H01
+export P1=ABS
+export P2=BKL
+export line=H01
 
 # export P1=ABP
 # export P2=BFQ
@@ -89,7 +89,10 @@ fi
 
 
 ```
-
+# End #########################################################################
+###############################################################################
+#                                                                             #
+#                                                                             #
 ###############################################################################
 # Run 02_load_variables.sh ####################################################
 
@@ -109,11 +112,41 @@ source $set_vars ${projDir} S288C ${P1} ${P2}
 export download_SRA=/home/mioverto/LOH_methods/code/01_download_SRA_reads.sh
 # chmod +x $download_SRA
 
-qsub -V -N ${proj}_download_sra \
+# Parent sequences
+# pAcc=ERR1309033
+qsub -V -N ${proj}_download_sra_parent \
     -o  ${projDir}/logs/sra_$(date +'%Y_%m_%d').out \
     -e  ${projDir}/logs/sra_$(date +'%Y_%m_%d').err \
-    -F "-L ${accFile} -C ${fasterqCache} -O ${readsDir}" \
+    -F "-A ${pAcc} -C ${fasterqCache} -O ${pReadsDir}/${P1}" \
     $download_SRA
+
+# Sample sequences
+# acc=${metaDir}/Dutta_etal_2021_H01_clones_accessions.txt
+qsub -V -N ${proj}_download_sra_clones \
+    -o  ${projDir}/logs/sra_$(date +'%Y_%m_%d').out \
+    -e  ${projDir}/logs/sra_$(date +'%Y_%m_%d').err \
+    -F "-A ${acc} -C ${fasterqCache} -O ${readsDir}" \
+    $download_SRA
+# End #########################################################################
+###############################################################################
+#                                                                             #
+#                                                                             #
+###############################################################################
+# Run rename_fastq.sh #########################################################
+
+export rename=/home/mioverto/LOH_methods/code/rename_fastq.sh
+# chmod +x $rename
+
+export set_vars=/home/mioverto/LOH_methods/code/00b_set_variables.sh
+source $set_vars ${projDir} ${typeRef} ${P1} ${P2}
+
+export plan_file=${metaDir}/Dutta_etal_2021_EPclones_rename.csv
+
+qsub -V -N rename_files \
+-o  ${projDir}/logs/rename_files_$(date +'%Y_%m_%d').out \
+-e  ${projDir}/logs/rename_files_$(date +'%Y_%m_%d').err \
+-F  "-r ${readsDir} -p ${plan_file}" \
+${rename}
 
 # End #########################################################################
 ###############################################################################
@@ -401,3 +434,60 @@ qsub -V -N ${line}_${P1}_cmbnAndCall \
 -e  ${projDir}/logs/${sampleName}_cmbnAndCall_$(date +'%Y_%m_%d').err \
 -F  "-v ${variantsDir}/individuals/${P1} -l ${line} -f $founders -R ${P1refSeq}" \
 ${cmbnAndCall}
+
+
+# End #########################################################################
+###############################################################################
+#                                                                             #
+#                                                                             #
+###############################################################################
+# Run 02_align_and_call.sh ##################################################
+
+export alignCall=/home/mioverto/LOH_methods/code/02_align_and_call.sh
+# chmod +x $alignCall
+
+# P1=ABS
+export set_vars=/home/mioverto/LOH_methods/code/00b_set_variables.sh
+source $set_vars ${projDir} ${typeRef} ${P1} ${P2}
+
+export lineFile=${metaDir}/hybrids_and_parents_3.csv
+# export line=H
+# export tag="_MQ30"
+# export tag="_mum"
+# P1refSeq=${P1refSeq/.fna/_mum.fna}
+
+while IFS="," read -r old line || [[ -n "$line" ]]; do
+    # source $set_vars ${projDir} ${typeRef} ${P1} ${P2}
+    echo $line $P1 $P2
+
+    for readsFile in ${readsDir}/${line}*R1.trim.fastq; do
+        # export readsFile=${readsDir}/N_A00_R1P.trim.fastq
+        export readsName=$(basename "${readsFile%%_R1*}")
+        export sampleName=${readsName}_${P1}${tag}
+        if [ -f "${alignDir}/${P1}/${sampleName}.dedup.bam" ]; then
+            echo "${sampleName} alignment already exists, skipping"
+
+        else
+            echo "Generating ${sampleName} alignment"
+            
+            qsub -V -N ${sampleName}_align \
+            -o  ${projDir}/logs/${sampleName}_align_$(date +'%Y_%m_%d').out \
+            -e  ${projDir}/logs/${sampleName}_align_$(date +'%Y_%m_%d').err \
+            -F  "-r ${readsFile} -a ${alignDir}/${P1} -R ${P1refSeq} -s set_vars" \
+            ${align_markDups}
+        fi
+    done
+
+done < "$lineFile"
+
+#  [-p parentName] [-r readsfile1] [-v VCFdirectory] [-t VCFtype] [-R referenceSequence]  [-s operatingSystem]
+${alignCall} -p ${P1} -r ${readsDir}/H01_01_R1.trim.fastq -v ${indvVarDir}/${P1} -t gVCF -R ${P1refSeq} -s tscc
+
+export readsFile=${readsDir}/H01_01_R1.trim.fastq
+export readsName=$(basename "${readsFile%%_R1*}")
+export sampleName=${readsName}_${P1}${tag}
+qsub -V -N ${sampleName}_align \
+            -o  ${projDir}/logs/${sampleName}_align_$(date +'%Y_%m_%d').out \
+            -e  ${projDir}/logs/${sampleName}_align_$(date +'%Y_%m_%d').err \
+            -F  "-p ${P1} -r ${readsDir}/H01_01_R1.trim.fastq -v ${indvVarDir}/${P1} -t gVCF -R ${P1refSeq} -s tscc" \
+            ${alignCall}

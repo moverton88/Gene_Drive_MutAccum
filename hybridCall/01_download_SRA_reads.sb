@@ -1,0 +1,50 @@
+#!/bin/bash
+
+#SBATCH --partition=hotel
+#SBATCH --qos=hotel
+#SBATCH --nodes=1
+#SBATCH --ntasks-per-node=1
+#SBATCH --time=12:00:00
+#SBATCH --account=htl100
+#SBATCH --get-user-env
+#SBATCH --job-name=SRA_dload
+
+###############################################################################
+# remove carriage return from acc.txt -> acc_crct.txt 
+
+# export acc_crct=${acc/.txt/_crct.txt}
+
+## must use control-v then control-m to enter ^M
+# sed -e “s/^M//” $acc > $acc_crct
+
+# -or- in vim
+# :%s/^M//g
+
+# acc=$acc_crct
+###############################################################################
+
+cd $cache
+
+if [[ -f ${acc} ]]; then
+    accBase=$(basename "${acc}")
+    echo "downloading reads from accessions in ${accBase}"
+    while IFS= read -r accID || [[ -n "${accID}" ]]; do 
+        export accNum=$(ls ${outDir}/${accID}_*1.fastq)
+        if [[ -f ${accNum} ]]; then
+            echo "Read files already exist as ${accNum}"
+        else
+            echo "downloading ${accID}"
+            $prefetch -O ${cache} ${accID} 
+            $fasterq -S ${accID} -O ${outDir}
+            rm  -rd ${homeCache}/${accID}
+            rm  -rd ${cache}/${accID}
+        fi
+    done < "$acc"
+
+    else
+    echo "downloading reads for accession ${acc}"
+            $prefetch -O $cache $acc 
+            $fasterq -S $acc -O $outDir
+            rm  -rd ${homeCache}/${acc}
+            rm  -rd ${cache}/${acc}
+fi

@@ -1,0 +1,107 @@
+#!/bin/bash
+#SBATCH --partition=hotel
+#SBATCH --qos=hotel
+#SBATCH --nodes=1
+#SBATCH --ntasks-per-node=1
+#SBATCH --time=12:00:00
+#SBATCH --account=htl100
+#SBATCH --get-user-env
+#SBATCH --job-name=combine_call
+
+
+
+###############################################################################
+# script setup ################################################################
+
+
+# founders=none
+# variantDir=${variantsDir}/individuals/${P1}
+# line=${line}
+# refSeq=$P1refSeq
+
+# get reference sequence prefix
+refPrefix=${refSeq/.fasta/}
+# Get Parent name from filename
+refFileName=$(basename "${refSeq}")
+pName=${refFileName%%_*}
+
+
+
+if [ ! -d "${lineVarDir}/${pName}" ]; then
+    echo "Creating lineage variants dir"
+    mkdir ${lineVarDir}/${pName}
+fi
+
+if [ ! -d "${finalVarDir}/${pName}" ]; then
+    echo "Creating final variants dir"
+    mkdir ${finalVarDir}/${pName}
+fi
+
+
+export gVCFlist=${lineVarDir}/${pName}/${line}_gVCFlist.list
+
+if [[ ${line} == all || ${line} == All ]] ; then
+    echo "making list of all line samples"
+    dir ${variantDir}/*${pName}*.g.vcf > ${gVCFlist}
+
+else
+    echo "making list of samples from ${line}"
+    find ${variantDir} -name "${line}*.g.vcf" > ${gVCFlist}
+
+fi
+
+lineVCF=${lineVarDir}/${pName}/${line}_${pName}.line.vcf
+finalVCF=${finalVarDir}/${pName}/${line}_${pName}.final.vcf
+
+# export gVCFlist=${variantDir}/anc_gVCFlist.list
+# dir ${variantDir}/*00*.g.vcf >> ${gVCFlist}
+# less ${gVCFlist}
+# less ${founderList}
+
+
+if [[ ${founders} == "none" ]]; then
+    echo "no founder IDs provided, genotyping end-point samples only"
+    $java -jar -Xmx16g $gatk CombineGVCFs  \
+        -R ${refSeq} \
+        -V ${gVCFlist} \
+        -O ${lineVCF}
+
+    $java -jar -Xmx16g $gatk GenotypeGVCFs \
+        -R ${refSeq} \
+        -V ${lineVCF} \
+        -O ${finalVCF}
+
+elif [[ ${founders} == "00" ]]; then
+
+    Foundlist=${lineVarDir}/${pName}/${line}_Foundlist.list
+    dir ${variantDir}/*00*${pName}*.g.vcf | xargs basename -a -s .g.vcf > ${Foundlist}
+
+    echo "founder IDs provided, genotyping all samples"
+    $java -jar -Xmx16g $gatk CombineGVCFs  \
+        -R ${refSeq} \
+        -V $gVCFlist \
+        --founder-id ${founders} \
+        -O ${lineVCF}
+
+    $java -jar -Xmx16g $gatk GenotypeGVCFs \
+        -R ${refSeq} \
+        -V ${lineVCF} \
+        --founder-id ${founders} \
+        -O ${finalVCF}
+
+else
+
+    echo "founder IDs provided, genotyping all samples"
+    $java -jar -Xmx16g $gatk CombineGVCFs  \
+        -R ${refSeq} \
+        -V $gVCFlist \
+        --founder-id ${founders} \
+        -O ${lineVCF}
+
+    $java -jar -Xmx16g $gatk GenotypeGVCFs \
+        -R ${refSeq} \
+        -V ${lineVCF} \
+        --founder-id ${founders} \
+        -O ${finalVCF}
+        
+fi
